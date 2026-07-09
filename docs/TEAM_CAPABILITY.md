@@ -19,10 +19,27 @@
 
 ## Vanessa Moyo — Team Member
 
-- **Role**: _TODO — to be filled in by the team._
+- **Role**: Researcher.
+- **Research focus**: _[Vanessa's research focus — to be confirmed by team]_. No
+  specific domain, institution, or focus area for Vanessa is documented anywhere in
+  this repo (proposal, prior commits, or Questions.md), so this is intentionally left
+  as a placeholder rather than guessed at.
+- **Plausible contribution areas (inference, not confirmed fact)**: a "Researcher"
+  role on a product like Lango could plausibly sit in any of a few places — this is
+  the team's judgment call to make, not something inferred here as settled:
+  - *Regulatory/compliance research* — e.g. aligning the product with Zimbabwe's Data
+    Protection Act and relevant procurement rules for the target institutions.
+  - *Market/user research* — e.g. understanding target-institution needs and pilot
+    readiness (banks, hospitals, ministries).
+  - *Fairness/bias research* — e.g. the Disparate Impact Ratio and language-parity
+    methodology used in the Fairness Audit view.
+  None of these is confirmed — see [Questions.md](../Questions.md) for the note
+  asking the team to confirm and replace this with her actual contribution area
+  before final submission.
 - **Skills / background**: _TODO — to be filled in by the team. Not invented here;
   leave blank rather than guess._
-- **Contribution area on this submission**: _TODO — to be filled in by the team._
+- **Contribution area on this submission**: _TODO — to be filled in by the team,
+  replacing the inferred possibilities above with what she actually did._
 
 ## Tools and external support used
 

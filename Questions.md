@@ -159,3 +159,20 @@ were genuinely unknown and left as explicit placeholders/TODOs rather than inven
 - **Pitch deck content** pulls figures directly from `docs/BUSINESS_MODEL.md` and
   `docs/DEPLOYMENT_PLAN.md` rather than restating them loosely, to avoid the two
   documents drifting apart over time.
+
+## 10. Vanessa Moyo's role — partially filled, still needs team confirmation
+
+Filled in `docs/TEAM_CAPABILITY.md` with **Role: Researcher**, as instructed directly.
+Searched the whole repo (proposal, all commits via `git log --all -p`, this file) for
+any existing mention of her specific research domain, institution, or focus area —
+found none. Her specific focus is therefore left as an explicit placeholder
+(`[Vanessa's research focus — to be confirmed by team]`), not guessed.
+
+Added three *possible* contribution areas as clearly-labelled inference, not fact —
+regulatory/compliance research, market/user research, and fairness/bias research —
+since all three are genuinely plausible fits for a "Researcher" on this specific
+product, but none is confirmed anywhere. **Team: please confirm Vanessa's actual
+research focus and contribution area and replace the placeholder + inferred list in
+`docs/TEAM_CAPABILITY.md` before final submission** — as instructed, this is flagged
+here rather than settled unilaterally. Her "Skills / background" and "Contribution
+area" fields remain `_TODO_`, unchanged, since only the role was specified this round.
