@@ -126,3 +126,36 @@ were genuinely unknown and left as explicit placeholders/TODOs rather than inven
   per the task instruction not to fabricate additional entries — the team should add
   further rows as they do their own manual testing, especially on mobile viewports
   and with accessibility tooling, neither of which has been tested at all.
+
+## 9. Thorough testing pass + video/pitch content — judgment calls and open items
+
+- **Real, significant mobile bug found and deliberately NOT fixed.** A thorough pass
+  at 375px width (headless Edge via Playwright, same ad hoc setup as before) found the
+  sidebar's fixed 224px width has no responsive breakpoint, squeezing all content into
+  ~150px on every view — KPI values and chart labels cut off, Audit Log reduced to one
+  column. This did not show up in a naive `document.scrollWidth` overflow check (no
+  page-level overflow occurs — content is clipped/wrapped, not overflowing), only in
+  visual screenshot inspection. Root cause is identified (`components/lango/
+  lango-dashboard.tsx`'s `w-56 shrink-0` sidebar, no `sm:`/`md:` responsive variant)
+  and documented in detail in `docs/TESTING_LOG.md`, but a real fix (collapsible
+  sidebar behind a toggle, responsive grid breakpoints) is a genuine UI change with
+  its own regression risk on desktop — explicitly left as an open item per this
+  task's own instruction not to rush a bigger fix. Updated the README and
+  `docs/UX_DESIGN.md` known-limitations wording from "not formally verified" to
+  "verified broken" so those docs stay honest now that this has actually been tested.
+- **Everything else tested passed cleanly**: sidebar navigation, the Command Center's
+  animated request-trace (sampled programmatically across a full ~9.5s cycle plus a
+  poll for the completed-state badge), the Audit Log's filter dropdown (all 4 options)
+  and row expand/collapse (including the single-expanded-row behavior), chart hover
+  tooltips on both the Fairness Audit and Drift & Security views, and a 4x refresh
+  consistency check confirming the prior session's PRNG/hydration fix (item 3) still
+  holds with zero hydration warnings. All logged in `docs/TESTING_LOG.md`, including
+  the passes, not just the one failure, per this task's instruction.
+- **Video script duration**: timed by word count only (~200 words ≈ 80s at 150wpm),
+  per the task's own stated method — did not attempt to time actual screen-recording
+  pauses (clicks, the ~7-8s trace animation), which would add real seconds beyond the
+  spoken-word estimate. Flagged this explicitly in `docs/VIDEO_SCRIPT.md` itself so
+  whoever records it knows to watch the total length, not just read the word count.
+- **Pitch deck content** pulls figures directly from `docs/BUSINESS_MODEL.md` and
+  `docs/DEPLOYMENT_PLAN.md` rather than restating them loosely, to avoid the two
+  documents drifting apart over time.

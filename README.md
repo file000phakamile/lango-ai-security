@@ -35,6 +35,10 @@ The five views (sidebar navigation): Command Center, Audit Log, Fairness Audit,
 Drift & Security, and Pilot & Sandbox. See [docs/UX_DESIGN.md](docs/UX_DESIGN.md) for
 what each one shows and why.
 
+A narrated walkthrough script for a screen recording of this demo is at
+[docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md); slide-by-slide pitch content is at
+[docs/PITCH_DECK_CONTENT.md](docs/PITCH_DECK_CONTENT.md).
+
 ## Architecture
 
 **This repo is a frontend-only demo.** It is a Next.js dashboard rendering
@@ -125,9 +129,13 @@ Stated plainly, not softened:
 - **No automated tests.** No unit, integration, or end-to-end test suite exists yet.
   Verification so far is manual click-through, logged in
   [docs/TESTING_LOG.md](docs/TESTING_LOG.md).
-- **Mobile responsiveness has not been formally verified.** The layout uses a fixed
-  sidebar and was built and checked at desktop widths; small-screen behaviour is
-  untested.
+- **Mobile responsiveness is confirmed broken at small widths, not just unverified.**
+  Tested at 375px width (see [docs/TESTING_LOG.md](docs/TESTING_LOG.md)): the sidebar
+  is a fixed 224px column with no responsive breakpoint, leaving only ~150px for
+  content — KPI values and chart labels get cut off and the Audit Log table is
+  reduced to a single unreadable column. Root cause identified; fix (a collapsible
+  sidebar + responsive grid breakpoints) not yet attempted, since it's a real UI
+  change that deserves its own scoped pass rather than a rushed patch.
 - **No real user feedback yet.** No pilot users have interacted with this demo; see
   [docs/UX_DESIGN.md](docs/UX_DESIGN.md).
 

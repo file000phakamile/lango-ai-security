@@ -111,10 +111,11 @@ Stated honestly:
   labels, not colour alone, for the decision badges and risk bands. Contrast has not
   been run through a formal automated audit (e.g. axe or Lighthouse accessibility
   score) — this is a gap, not a claim of compliance.
-- **Mobile responsiveness has not been formally verified.** The layout uses a fixed
-  56-unit sidebar and was built and reviewed at desktop widths; behaviour on small
-  screens is untested and likely needs work (the sidebar in particular has no
-  responsive collapse behaviour today).
+- **Mobile responsiveness is confirmed broken, not just untested.** Tested at 375px
+  width (see [TESTING_LOG.md](TESTING_LOG.md)) — the fixed 56-unit sidebar has no
+  responsive collapse behaviour, squeezing all content into ~150px: KPI values and
+  chart labels are cut off, and the Audit Log table shows only its first column. No
+  fix attempted yet; this needs a proper responsive redesign, not a quick patch.
 - **Keyboard navigation**: standard browser tab order works for the sidebar buttons,
   table row expansion, and the audit-log filter dropdown, since these are native
   `<button>`/`<select>` elements — no custom focus-trap or skip-link work has been done
