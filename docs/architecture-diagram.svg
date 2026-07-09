@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1750 900" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8A6323" />
+    </marker>
+    <marker id="arrowGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5B6270" />
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1750" height="900" fill="#F6F7F8" />
+
+  <!-- Title -->
+  <text x="30" y="36" font-size="20" font-weight="600" fill="#14171C">Lango — AI Data Guard: Request Pipeline (target production architecture)</text>
+  <text x="30" y="58" font-size="13" fill="#A83A3A">This diagram shows the TARGET production system. The demo in this repo has no backend — see docs/ARCHITECTURE.md for the demo-vs-target breakdown.</text>
+
+  <!-- Backend/API layer grouping box -->
+  <rect x="590" y="95" width="1130" height="150" rx="10" fill="none" stroke="#8A6323" stroke-dasharray="6 4" stroke-width="1.5" />
+  <text x="605" y="115" font-size="12" fill="#8A6323" font-weight="600">BACKEND / API LAYER — target: Rust + Axum</text>
+
+  <!-- Frontend group label -->
+  <text x="225" y="115" font-size="12" fill="#5B6270" font-weight="600">ACCESS CHANNEL</text>
+
+  <!-- Row 1: main pipeline spine, y=150..220 -->
+  <!-- 1 User -->
+  <rect x="30" y="150" width="150" height="70" rx="8" fill="#FFFFFF" stroke="#E1E4E8" stroke-width="1.5" />
+  <text x="105" y="180" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">Staff User</text>
+  <text x="105" y="198" font-size="10" fill="#5B6270" text-anchor="middle">e.g. Credit Risk</text>
+  <text x="105" y="210" font-size="10" fill="#5B6270" text-anchor="middle">analyst</text>
+
+  <line x1="180" y1="185" x2="215" y2="185" stroke="#8A6323" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- 2 Frontend -->
+  <rect x="220" y="150" width="170" height="70" rx="8" fill="#FFFFFF" stroke="#E1E4E8" stroke-width="1.5" />
+  <text x="305" y="178" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">Web Dashboard</text>
+  <text x="305" y="196" font-size="10" fill="#5B6270" text-anchor="middle">Next.js client</text>
+  <text x="305" y="209" font-size="10" fill="#5B6270" text-anchor="middle">(this repo)</text>
+
+  <line x1="390" y1="185" x2="425" y2="185" stroke="#8A6323" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- 3 Authentication -->
+  <rect x="410" y="150" width="150" height="70" rx="8" fill="#FFFFFF" stroke="#E1E4E8" stroke-width="1.5" />
+  <text x="485" y="178" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">Authentication</text>
+  <text x="485" y="196" font-size="10" fill="#5B6270" text-anchor="middle">JWT + Argon2</text>
+
+  <line x1="590" y1="185" x2="615" y2="185" stroke="#8A6323" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- 4 Prompt Scanner -->
+  <rect x="620" y="150" width="160" height="70" rx="8" fill="#FFFFFF" stroke="#E1E4E8" stroke-width="1.5" />
+  <text x="700" y="178" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">Prompt Scanner</text>
+  <text x="700" y="196" font-size="10" fill="#5B6270" text-anchor="middle">risk score assigned</text>
+  <text x="700" y="209" font-size="10" fill="#5B6270" text-anchor="middle">rules + NER</text>
+
+  <line x1="780" y1="185" x2="805" y2="185" stroke="#8A6323" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- 5 Redaction Engine -->
+  <rect x="810" y="150" width="170" height="70" rx="8" fill="#FFFFFF" stroke="#E1E4E8" stroke-width="1.5" />
+  <text x="895" y="178" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">Redaction Engine</text>
+  <text x="895" y="196" font-size="10" fill="#5B6270" text-anchor="middle">entities replaced</text>
+  <text x="895" y="209" font-size="10" fill="#5B6270" text-anchor="middle">with placeholders</text>
+
+  <line x1="980" y1="185" x2="1005" y2="185" stroke="#8A6323" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- 6 AI Gateway -->
+  <rect x="1010" y="150" width="150" height="70" rx="8" fill="#FFFFFF" stroke="#E1E4E8" stroke-width="1.5" />
+  <text x="1085" y="178" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">AI Gateway</text>
+  <text x="1085" y="196" font-size="10" fill="#5B6270" text-anchor="middle">sanitised prompt</text>
+  <text x="1085" y="209" font-size="10" fill="#5B6270" text-anchor="middle">sent onward</text>
+
+  <line x1="1160" y1="185" x2="1185" y2="185" stroke="#8A6323" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- 7 Response Scanner -->
+  <rect x="1190" y="150" width="170" height="70" rx="8" fill="#FFFFFF" stroke="#E1E4E8" stroke-width="1.5" />
+  <text x="1275" y="178" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">Response Scanner</text>
+  <text x="1275" y="196" font-size="10" fill="#5B6270" text-anchor="middle">AI output checked</text>
+  <text x="1275" y="209" font-size="10" fill="#5B6270" text-anchor="middle">before return</text>
+
+  <line x1="1360" y1="185" x2="1385" y2="185" stroke="#8A6323" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- 8 Audit Service -->
+  <rect x="1390" y="150" width="160" height="70" rx="8" fill="#FFFFFF" stroke="#E1E4E8" stroke-width="1.5" />
+  <text x="1470" y="178" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">Audit Service</text>
+  <text x="1470" y="196" font-size="10" fill="#5B6270" text-anchor="middle">full record</text>
+  <text x="1470" y="209" font-size="10" fill="#5B6270" text-anchor="middle">written</text>
+
+  <line x1="1550" y1="185" x2="1575" y2="185" stroke="#8A6323" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- 9 Output / Decision -->
+  <rect x="1580" y="140" width="150" height="90" rx="8" fill="#EAF4EE" stroke="#2F7A53" stroke-width="1.5" />
+  <text x="1655" y="165" font-size="13" font-weight="700" fill="#2F7A53" text-anchor="middle">Decision</text>
+  <text x="1655" y="182" font-size="9" fill="#14171C" text-anchor="middle">cleared / redacted</text>
+  <text x="1655" y="195" font-size="9" fill="#14171C" text-anchor="middle">/ blocked</text>
+  <text x="1655" y="212" font-size="9" fill="#5B6270" text-anchor="middle">returned to user</text>
+
+  <!-- Loop back arrow: Decision -> User -->
+  <path d="M 1655 230 C 1655 300, 105 300, 105 222" fill="none" stroke="#5B6270" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrowGray)" />
+  <text x="880" y="292" font-size="11" fill="#5B6270" text-anchor="middle">response / block notice returned to user</text>
+
+  <!-- Database node, connected to Audit Service and Authentication -->
+  <rect x="1385" y="400" width="220" height="90" rx="8" fill="#FFFFFF" stroke="#5B6270" stroke-width="1.5" />
+  <text x="1495" y="428" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">Database</text>
+  <text x="1495" y="446" font-size="10" fill="#5B6270" text-anchor="middle">target: PostgreSQL</text>
+  <text x="1495" y="460" font-size="10" fill="#5B6270" text-anchor="middle">audit log, users, pilot config</text>
+  <text x="1495" y="475" font-size="10" fill="#5B6270" text-anchor="middle">system of record for evidence</text>
+
+  <line x1="1470" y1="220" x2="1495" y2="398" stroke="#5B6270" stroke-width="1.5" marker-end="url(#arrowGray)" />
+  <line x1="485" y1="220" x2="1400" y2="440" stroke="#5B6270" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrowGray)" />
+  <text x="900" y="330" font-size="10" fill="#5B6270">user/session records</text>
+
+  <!-- External AI provider node, connected to AI Gateway -->
+  <rect x="990" y="400" width="230" height="90" rx="8" fill="#FFFFFF" stroke="#5B6270" stroke-width="1.5" />
+  <text x="1105" y="428" font-size="13" font-weight="600" fill="#14171C" text-anchor="middle">External AI Provider</text>
+  <text x="1105" y="446" font-size="10" fill="#5B6270" text-anchor="middle">institution's existing</text>
+  <text x="1105" y="460" font-size="10" fill="#5B6270" text-anchor="middle">generative AI tool</text>
+  <text x="1105" y="475" font-size="10" fill="#5B6270" text-anchor="middle">(not replaced by Lango)</text>
+
+  <line x1="1085" y1="220" x2="1085" y2="398" stroke="#8A6323" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="1160" y1="398" x2="1220" y2="222" stroke="#8A6323" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)" />
+  <text x="1010" y="395" font-size="9" fill="#8A6323">sanitised prompt out</text>
+  <text x="1230" y="395" font-size="9" fill="#8A6323">raw response in</text>
+
+  <!-- Security & Monitoring node -->
+  <rect x="560" y="560" width="620" height="110" rx="8" fill="#FFFFFF" stroke="#A83A3A" stroke-width="1.5" />
+  <text x="870" y="586" font-size="13" font-weight="600" fill="#A83A3A" text-anchor="middle">Security &amp; Monitoring Layer</text>
+  <text x="870" y="606" font-size="10" fill="#14171C" text-anchor="middle">Drift Monitor (PSI / KL-divergence, weekly, alert &gt;0.20)</text>
+  <text x="870" y="622" font-size="10" fill="#14171C" text-anchor="middle">Fairness Audit (Disparate Impact Ratio / Statistical Parity Difference, by language &amp; department)</text>
+  <text x="870" y="638" font-size="10" fill="#14171C" text-anchor="middle">Security Events (prompt-injection blocking, rate limiting, DoS mitigation)</text>
+  <text x="870" y="656" font-size="9" fill="#5B6270" text-anchor="middle">alerts routed to ops via notification webhook</text>
+
+  <line x1="700" y1="220" x2="750" y2="558" stroke="#A83A3A" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)" />
+  <text x="600" y="400" font-size="9" fill="#A83A3A">injection / rate-limit events</text>
+
+  <line x1="1470" y1="220" x2="1000" y2="558" stroke="#A83A3A" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)" />
+  <text x="1250" y="450" font-size="9" fill="#A83A3A">audit data feeds drift &amp; fairness checks</text>
+
+  <!-- Legend -->
+  <rect x="30" y="760" width="1690" height="110" rx="8" fill="#FFFFFF" stroke="#E1E4E8" stroke-width="1" />
+  <text x="50" y="785" font-size="12" font-weight="600" fill="#14171C">Legend</text>
+  <line x1="50" y1="805" x2="90" y2="805" stroke="#8A6323" stroke-width="2" marker-end="url(#arrow)" />
+  <text x="98" y="809" font-size="11" fill="#5B6270">Request flow (solid, gold) — the fixed pipeline every prompt passes through</text>
+  <line x1="50" y1="828" x2="90" y2="828" stroke="#5B6270" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrowGray)" />
+  <text x="98" y="832" font-size="11" fill="#5B6270">Data / response flow (dashed, grey) — persistence and return paths</text>
+  <line x1="50" y1="851" x2="90" y2="851" stroke="#A83A3A" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)" />
+  <text x="98" y="855" font-size="11" fill="#5B6270">Security / monitoring signal (dashed, red) — feeds drift, fairness, and event logging</text>
+</svg>

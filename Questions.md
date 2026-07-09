@@ -73,3 +73,56 @@ Confirmed via a scripted pass over all five views that no "proposal" or "Section
 text remains anywhere in the rendered UI. If you did intend specific alternate wording
 (rather than my rewrite), the four spots above are the ones to compare against your
 original edit.
+
+## 6. Deployment: Git wasn't installed on this machine
+`git` was not found on PATH. Installed it via `winget install --id Git.Git -e` (silent,
+standard package, low risk) since you explicitly asked me to git init/commit. No global
+git identity existed either, so I set `user.email`/`user.name` scoped to this repo only
+(not `--global`) using your known email, with the name "Lango Dev" — a placeholder,
+change it if you want commit authorship to say something else:
+`git config user.name "Your Name"` in `lango-app/`.
+
+## 7. Deployment: production URL vs. GitHub-linked deploys
+Went with direct CLI deploy (`vercel --prod --yes`) as you specified, not a GitHub
+connection. This means future changes need `vercel --prod` run manually (or a git
+integration set up later via the Vercel dashboard) — there's no auto-deploy-on-push.
+Didn't set a custom domain or vanity project name beyond what the CLI auto-derived from
+the directory name (`lango-app`); the alias came out as `lango-app-dusky.vercel.app`.
+
+**Live URL: https://lango-app-dusky.vercel.app**
+
+## 8. AI4I submission documents — judgment calls and open items
+
+Produced the full AI4I submission document set (README, LICENSE, .env.example,
+docs/BUSINESS_MODEL.md, docs/DEPLOYMENT_PLAN.md, docs/ARCHITECTURE.md,
+docs/architecture-diagram.svg, docs/DATA_AI_USAGE.md, docs/UX_DESIGN.md,
+docs/SECURITY_PRIVACY.md, docs/TESTING_LOG.md, docs/TEAM_CAPABILITY.md). A few items
+were genuinely unknown and left as explicit placeholders/TODOs rather than invented:
+
+- **No proposal PDF exists in this repo or its parent directory.** Searched both
+  (`**/*.pdf`) and found none — only `lango-dashboard.jsx` (the pre-port source
+  artifact) one level up. All document content is therefore drawn from the actual
+  code in this repo (`lib/lango/types.ts`, `lib/lango/mock-data.ts`, the five
+  dashboard components) plus the context given directly in the task prompt, not from
+  a proposal document. If a proposal PDF exists elsewhere and should be the source of
+  truth for figures/wording, it wasn't available to reconcile against here.
+- **Live deployed URL**: reused `https://lango-app-dusky.vercel.app`, already recorded
+  above from the prior deployment session (item 7) and confirmed still referenced
+  consistently — did not re-verify it's still live via a fresh request in this pass.
+- **Vanessa Moyo's background, role, and skills are unknown** and were left as
+  explicit `_TODO_` placeholders in `docs/TEAM_CAPABILITY.md` rather than invented.
+  Team should fill in: role, skills/background, and contribution area.
+- **No real user/pilot feedback exists yet.** Stated plainly as "None yet" in
+  `docs/UX_DESIGN.md` rather than fabricated.
+- **Testing**: ran `npm run dev`, drove a headless Edge browser (via Playwright,
+  installed ad hoc into the scratchpad since no browser-testing tooling exists in
+  this repo) through all five dashboard views plus the Audit Log row-expand and
+  decision filter. All rendered correctly, no console errors, figures internally
+  consistent. One genuine, minor, dev-only cosmetic finding logged in
+  `docs/TESTING_LOG.md`: Next.js's own dev-mode indicator badge overlaps the
+  sidebar's footer disclaimer text locally (not present in the production/Vercel
+  build) — no code fix applied since it's not part of this app's own code.
+- **`docs/TESTING_LOG.md` intentionally has only one real row** plus a TODO marker,
+  per the task instruction not to fabricate additional entries — the team should add
+  further rows as they do their own manual testing, especially on mobile viewports
+  and with accessibility tooling, neither of which has been tested at all.
