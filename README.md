@@ -41,29 +41,63 @@ A narrated walkthrough script for a screen recording of this demo is at
 
 ## Architecture
 
-**This repo is a frontend-only demo.** It is a Next.js dashboard rendering
-**synthetic, deterministically-generated mock data in the browser** — there is no
-backend, no database, and no live connection to any AI provider anywhere in this
-codebase. Every number, log row, and chart on screen is produced client-side by
-[`lib/lango/mock-data.ts`](lib/lango/mock-data.ts) from a seeded PRNG, purely to make
-the concept and the UI legible to a reviewer.
+**This repo now has a real, working backend — v0.1, not production-hardened.** A
+Rust + Axum API ([`backend/`](backend/)) backed by a real PostgreSQL schema
+implements JWT + Argon2 authentication, a genuine rule-based regex + name-heuristic
+detection engine (see [Detection engine](#detection-engine-v01) below for exactly
+what "NER" means here), real Disparate Impact Ratio / Statistical Parity Difference
+fairness math, and real PSI / KL-divergence drift math — all computed from actual
+rows in a `audit_log` table, not fabricated. The Next.js dashboard calls these
+endpoints over HTTP; see [Setup](#setup) to run both halves locally.
 
-The **target production architecture** (not present in this repo) is:
-Rust + Axum backend, PostgreSQL database, JWT + Argon2 authentication, and a
-rule-based pattern-matching + NER detection layer (not generative AI, by design, for
-explainability).
+What's still a deliberate v0.1 simplification, stated plainly: no live AI provider is
+connected (the "AI Gateway" stage is a labeled no-op — see
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)); no live prompt-injection/rate-limit/DoS
+detection runs (the Security Events table is seeded with illustrative rows, not
+produced by a live detector); there's no scheduled drift job (drift snapshots are
+computed once at seed time); and the dashboard has no login screen of its own — it
+authenticates transparently as a seeded demo account (see
+[Environment Variables](#environment-variables)). The deployed Vercel demo still runs
+on client-side mock data by default (`NEXT_PUBLIC_USE_MOCK_DATA=true`), since no
+backend is hosted alongside it — see [Questions.md](Questions.md) for that call.
 
 Full breakdown of demo-vs-target for every layer (frontend, backend, database, AI
 layer, integrations, security, monitoring, outputs) is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), including a diagram at
 [docs/architecture-diagram.svg](docs/architecture-diagram.svg).
 
+### Detection engine (v0.1)
+
+Real, working, non-simulated code — with real limits, documented honestly:
+
+- **Regex rules** (`backend/src/detection/rules.rs`): national ID, phone number,
+  credit card (regex + a real Luhn checksum), API keys/tokens (known-prefix patterns
+  plus a deliberately low-confidence generic fallback), medical record number, bank
+  account number. Zimbabwean formats used where a public format exists (national ID,
+  mobile prefixes); everything else is a documented best-effort/generic pattern — see
+  the source comments for exactly what each pattern is and isn't validated against.
+- **Names — NOT real NER.** `backend/src/detection/name_heuristic.rs` is a
+  capitalized-word-sequence heuristic with a stopword exclusion list, clearly labeled
+  in its own doc comment as a simplified stand-in. It was chosen over a transformer-
+  based NER crate (`rust-bert`/ONNX options) because those need a native
+  libtorch/onnxruntime dependency — too heavy for a "runs locally, not
+  production-hardened" v0.1. See [Questions.md](Questions.md) for the full reasoning.
+- **Fail-closed risk scoring** (`backend/src/detection/scan.rs`): each match carries a
+  confidence score; if the lowest-confidence match on a prompt is below threshold, the
+  request is blocked (`blocked_low_confidence`) rather than redacted and forwarded —
+  real logic, not a random coin flip like the old mock data used.
+
 ## Data
 
-All data shown in this demo is **synthetic**, generated at runtime by a seeded PRNG —
-no real user, employee, or institutional data is used or stored anywhere in this repo.
-See [docs/DATA_AI_USAGE.md](docs/DATA_AI_USAGE.md) for full detail on data structure,
-rights, and validation approach.
+All data shown in this demo is **synthetic** — no real user, employee, or
+institutional data is used or stored anywhere in this repo. When running against the
+real backend, that data lives in PostgreSQL and is produced by
+[`backend/src/bin/seed.rs`](backend/src/bin/seed.rs), which runs synthetic prompts
+through the real detection engine rather than fabricating risk scores directly; when
+running against the mock fallback, it's generated at runtime in the browser by a
+seeded PRNG. See [docs/DATA_AI_USAGE.md](docs/DATA_AI_USAGE.md) for full detail on
+data structure, rights, and validation approach, and the note above on what raw
+prompt text the backend does (and does not) ever persist.
 
 ## AI Method
 
@@ -76,6 +110,8 @@ Parity Difference fairness checks, shown live in the Fairness Audit view).
 
 ## Setup
 
+### Frontend only (mock data, no backend needed)
+
 Requires Node.js (18+) and npm.
 
 ```bash
@@ -85,9 +121,62 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. That's it — no environment variables, database, or API
-keys are required to run this demo (see [Environment Variables](#environment-variables)
-below).
+Open http://localhost:3000. With no `.env.local`, the dashboard tries the real
+backend at `http://localhost:8080` and **falls back to client-side mock data
+automatically** if it isn't reachable — so this alone is still enough to see the app
+render. See [Environment Variables](#environment-variables) to force mock mode
+explicitly, or to point at a real backend.
+
+### Full stack (real backend + real data)
+
+Requires the above, plus Rust (stable) and either Docker, or a local PostgreSQL 14+
+instance.
+
+```bash
+# 1. Start Postgres (Docker Compose, from the repo root)
+docker compose up -d
+
+# 2. Configure and run the backend — applies migrations automatically on boot
+cd backend
+cp .env.example .env      # defaults already match docker-compose.yml
+cargo run --bin lango-backend
+```
+
+In a second terminal, seed realistic sample data (safe to re-run — truncates and
+reseeds):
+
+```bash
+cd backend
+cargo run --bin seed
+```
+
+This prints the two demo login accounts it creates
+(`compliance@lango.demo` / `admin@lango.demo`, password `LangoDemo123!`) — the
+frontend uses the `compliance` one automatically (see
+[Environment Variables](#environment-variables)).
+
+In a third terminal, run the frontend against it:
+
+```bash
+cp .env.local.example .env.local   # sets NEXT_PUBLIC_API_BASE_URL etc.
+npm run dev
+```
+
+Open http://localhost:3000 — the "system operational" badge in the top-right confirms
+you're looking at live backend data, not the mock fallback (it reads "mock data
+(backend unavailable)" otherwise).
+
+Test the detection engine directly:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"compliance@lango.demo","password":"LangoDemo123!"}' | jq -r .token)
+
+curl -s -X POST http://localhost:8080/api/scan \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"prompt":"Please verify national ID 63-123456A23 for John Moyo, phone 0771234567."}' | jq
+```
 
 Other scripts, from `package.json`:
 
@@ -97,19 +186,34 @@ npm run start   # serve the production build
 npm run lint    # eslint
 ```
 
+Backend tests: `cd backend && cargo test` (unit tests for the detection engine — see
+`detection::scan` and `detection::drift`).
+
 ## Environment Variables
 
-**None are required to run this demo.** [`.env.example`](.env.example) documents what
-a *production* deployment of the real Lango backend would need (AI provider API key,
-database connection string, JWT signing secret, etc.) — those are placeholders for the
-target architecture, not something this repo reads or uses today.
+**None are required to run just the frontend against mock data** — that's the
+default the deployed Vercel demo uses. Two separate `.env.example` files cover the
+two halves of the real system:
+
+- [`.env.local.example`](.env.local.example) (frontend, copy to `.env.local`):
+  `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_USE_MOCK_DATA`, and the demo login the
+  dashboard authenticates as automatically (there's no login screen in v0.1).
+- [`backend/.env.example`](backend/.env.example) (backend, copy to `backend/.env`):
+  `DATABASE_URL`, `JWT_SIGNING_SECRET`, `PORT`, `CORS_ORIGIN`.
+- [`.env.example`](.env.example) at the repo root is legacy/aspirational — it
+  documents variables a *hosted production* deployment would additionally need (an AI
+  provider API key, an alert webhook) that no code in this repo reads yet, since v0.1
+  doesn't connect to a live AI provider or alerting service.
 
 ## Tests
 
-**There is no automated test suite in this repo yet.** This is an honest gap, not an
-oversight we're hiding — see [Known Limitations](#known-limitations) and
+Backend: `detection::scan` and `detection::drift` have real unit tests
+(`cd backend && cargo test`) covering the regex rules, the Luhn check, the
+fail-closed threshold, and the PSI/KL-divergence math. There is no integration or
+end-to-end test suite yet, and no frontend test suite — an honest gap, not an
+oversight we're hiding. See [Known Limitations](#known-limitations) and
 [docs/TESTING_LOG.md](docs/TESTING_LOG.md), which tracks manual click-through testing
-of the dashboard views instead.
+of the dashboard views.
 
 ## Deployment
 
@@ -123,11 +227,26 @@ the target pilot deployment plan.
 
 Stated plainly, not softened:
 
-- **No backend exists.** Everything in this repo is a static frontend over synthetic,
-  client-generated mock data. There is no API, no database, no authentication, and no
-  connection to any AI provider.
-- **No automated tests.** No unit, integration, or end-to-end test suite exists yet.
-  Verification so far is manual click-through, logged in
+- **v0.1, not production-hardened.** The backend, database, and detection engine are
+  real and functioning locally — this is no longer a frontend-only simulation — but
+  nothing here has had a security/production hardening pass. See
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full demo-vs-target breakdown.
+- **No live AI provider connection.** The "AI Gateway" pipeline stage is a labeled
+  no-op (`ai_model_used` is always the literal string documenting that no provider is
+  connected) — Lango gates access to an AI provider by design, but v0.1 doesn't
+  actually call one.
+- **No live security-event detection.** Prompt-injection/rate-limit/DoS detection is
+  not implemented; the Security Events table is seeded with illustrative example rows
+  (see `backend/src/bin/seed.rs`), not produced by a live detector.
+- **No login screen.** The dashboard authenticates as a fixed seeded demo account
+  (see [Environment Variables](#environment-variables)) rather than having its own
+  auth UI — fine for a single-reviewer local demo, not how a real multi-user
+  deployment would work.
+- **The deployed Vercel demo still uses mock data.** No backend is hosted alongside
+  it; `NEXT_PUBLIC_USE_MOCK_DATA=true` there is deliberate, not a bug.
+- **No integration or end-to-end test suite.** Backend detection-engine logic has
+  real unit tests (`cargo test`); everything above that (API integration, frontend)
+  is verified by manual click-through, logged in
   [docs/TESTING_LOG.md](docs/TESTING_LOG.md).
 - **Mobile responsiveness is confirmed broken at small widths, not just unverified.**
   Tested at 375px width (see [docs/TESTING_LOG.md](docs/TESTING_LOG.md)): the sidebar

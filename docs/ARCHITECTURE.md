@@ -1,78 +1,92 @@
 # Architecture — Lango / AI Data Guard
 
-This document is deliberately split into **demo-as-built** and **target production**
-columns for every row. They are not the same system — conflating them would misrepresent
-what a judge is actually looking at when they open the live demo link. See also
+This document is split into **local-build (v0.1, this repo)** and **target production**
+columns for every row. As of this pass, the local build has a real Rust + Axum backend,
+a real PostgreSQL schema, and a real (if intentionally simplified) detection engine —
+it is genuinely functioning code, not a simulation. It is still **not
+production-hardened**: no live AI provider connection, no live security-event
+detection, no scheduled jobs, no login UI, no multi-tenant isolation. The columns below
+are not the same system — conflating "runs locally" with "ready for a pilot
+institution" would misrepresent what actually exists. The **deployed Vercel demo**
+(no backend hosted alongside it) still runs on the client-side mock generator via
+`NEXT_PUBLIC_USE_MOCK_DATA=true` — see [Questions.md](../Questions.md). See also
 [architecture-diagram.svg](architecture-diagram.svg) for the target request pipeline.
 
 ## Backend Architecture
 
-| Layer | Demo (as-built, this repo) | Target production system |
+| Layer | Local build (v0.1, this repo) | Target production system |
 |---|---|---|
-| **Users** | Anyone with the demo link — no login, single fixed view. | Authenticated staff at a pilot institution, scoped by department/role. |
-| **Access channel** | Public web URL (Vercel), any modern browser. | Same web access channel, but behind institutional authentication; potentially embedded/proxied so staff use it transparently alongside their existing AI tool. |
-| **Frontend** | Next.js 16 (App Router) + React 19 + TypeScript, Tailwind CSS v4, shadcn-based UI primitives, Recharts for charts. Single client component (`LangoDashboard`) with five sub-views switched by local state — no routing between views. | Same frontend stack, extended to call a real API instead of local mock data, plus a login flow. |
-| **Backend** | **None.** No server-side application code, no API routes, no request handling of any kind — this is a static frontend. | Rust + Axum HTTP API implementing the six-stage pipeline: Authentication → Prompt Scanner → Redaction Engine → AI Gateway → Response Scanner → Audit Service. |
-| **Database** | **None.** All data (`lib/lango/mock-data.ts`) is generated in-browser from a seeded PRNG (`mulberry32`, seed `2026`) on every page load; nothing is persisted. | PostgreSQL. Stores the audit log (system-of-record for compliance evidence), user/role data, pilot configuration, and fairness/drift metric history. |
-| **AI layer** | **None** — no calls to any AI provider are made anywhere in this codebase; all "model" fields in the audit log (e.g. "Connector: Provider A, model v1") are synthetic placeholder strings. | Rule-based pattern matching + Named Entity Recognition (NER) for sensitive-entity detection (national ID, bank account, phone number, full name, medical record number, API key) — deliberately not a generative model, for explainability (see [DATA_AI_USAGE.md](DATA_AI_USAGE.md)). The sanitised prompt is then forwarded to whichever external generative AI provider the institution already uses; Lango does not replace that provider, it gates access to it. |
+| **Users** | Whoever runs the stack locally — the dashboard authenticates transparently as one fixed seeded demo account (no login UI yet). | Authenticated staff at a pilot institution, scoped by department/role. |
+| **Access channel** | `npm run dev` (frontend) + `cargo run` (backend) on localhost; the deployed Vercel demo link still serves mock data only, since no backend is hosted publicly. | Same web access channel, but behind institutional authentication; potentially embedded/proxied so staff use it transparently alongside their existing AI tool. |
+| **Frontend** | Next.js 16 (App Router) + React 19 + TypeScript, Tailwind CSS v4, shadcn-based UI primitives, Recharts for charts. Single client component (`LangoDashboard`) with five sub-views switched by local state — no routing between views. `lib/lango/api-client.ts` fetches real data from the backend and falls back to the old mock generator if it's unreachable. | Same frontend stack, plus a real login flow (replacing the fixed demo-account shortcut) and multi-tenant awareness. |
+| **Backend** | **Real.** Rust + Axum HTTP API (`backend/`) implementing `/api/auth/login`, `/api/scan`, `/api/audit-log`, `/api/fairness`, `/api/drift`, `/api/security-events`, `/api/command-center/summary` — JWT-authenticated, role-gated, real error handling with a consistent JSON error shape. The AI Gateway pipeline stage is present as a labeled no-op (see AI layer row below), not a live call. | Same API surface, hardened: rate limiting, structured audit logging of admin actions, multi-tenant isolation, the AI Gateway stage actually forwarding to a live provider. |
+| **Database** | **Real.** PostgreSQL via `sqlx`, migrations in `backend/migrations/`: `users`, `sessions`, `audit_log`, `detection_rules`, `security_events`, `drift_snapshots`. `docker-compose.yml` spins up Postgres locally; `backend/src/bin/seed.rs` populates realistic sample data by running synthetic prompts through the real detection engine. Raw prompt text is never stored — only a SHA-256 hash (`original_prompt_hash`) plus the redacted version. | Same schema, plus tenant-scoping columns/row-level security, retention policy enforcement, and backup/DR. |
+| **AI layer** | Rule-based pattern matching (real regexes, Luhn-checked credit cards) + a **capitalized-word-sequence heuristic standing in for NER** (`backend/src/detection/name_heuristic.rs` — explicitly documented in its own doc comment as not real NER; a full transformer-based NER crate needs a native libtorch/onnxruntime dependency, too heavy for this v0.1 — see [Questions.md](../Questions.md)). No live generative-AI provider is connected — `ai_model_used` on every audit-log row is a literal string stating that plainly, not a fabricated model name. | Rule-based pattern matching + a real NER model (once a workable lightweight option exists, or the heavier dependency is judged worth it) for sensitive-entity detection — deliberately not a generative model itself, for explainability (see [DATA_AI_USAGE.md](DATA_AI_USAGE.md)). The sanitised prompt is then forwarded to whichever external generative AI provider the institution already uses; Lango does not replace that provider, it gates access to it. |
 | **Integrations** | None. | Connector(s) to the institution's chosen AI provider(s); an alert/notification channel for drift and fairness alerts (see `.env.example`, `ALERT_WEBHOOK_URL`); potentially SSO/identity-provider integration for institutional login. |
-| **Security** | Standard static-site delivery over HTTPS (Vercel default). No auth, because there is nothing sensitive to protect — all data on screen is synthetic. | JWT session tokens + Argon2 password hashing; tenant-isolated data per institution; prompt-injection detection, rate limiting, and DoS mitigation at the gateway (illustrated in the demo's Drift & Security view as example event types, not live protections). |
-| **Monitoring** | None — nothing is running server-side to monitor. | Drift detection (PSI / KL-divergence, weekly, alert threshold 0.20) on entity-detection distributions; fairness monitoring (Disparate Impact Ratio / Statistical Parity Difference) by language and department; security event logging (injection attempts, rate limits, DoS mitigation). |
-| **Outputs** | Read-only dashboard views for a judge/reviewer to inspect the concept. | A permanent, queryable audit log per request (user, timestamp, entities detected, risk score, decision, reason, model used, response-scan result) — the compliance evidence artefact the whole product exists to produce. |
+| **Security** | JWT session tokens (real, `jsonwebtoken` crate) + Argon2 password hashing (real, `argon2` crate) + role-gated endpoints (`staff` vs `compliance`/`admin`). No prompt-injection detection, rate limiting, or DoS mitigation is implemented — the Drift & Security view's Security Events are seeded illustrative rows (`backend/src/bin/seed.rs`), not output from a live detector. No tenant isolation (single shared schema). | Same JWT/Argon2 foundation, plus tenant-isolated data per institution and real prompt-injection detection, rate limiting, and DoS mitigation at the gateway. |
+| **Monitoring** | Real PSI / KL-divergence math (`backend/src/detection/drift.rs`, with unit tests) computed once at seed time over synthetic weekly entity-count distributions — no scheduled batch job exists yet, so this doesn't run continuously against live traffic. Real Disparate Impact Ratio / Statistical Parity Difference (`backend/src/routes/fairness.rs`) computed live, on every request, from actual `audit_log` rows grouped by department and language. | Same PSI/KL and DIR/SPD math, run by a real scheduled job against live traffic instead of seed-time synthetic data; security event logging from a live detector instead of seeded examples. |
+| **Outputs** | A real, queryable `audit_log` table — one row per `/api/scan` call, with entities detected, risk score, decision, reason string, model used, response-scan result, and a hash (never raw text) of the original prompt. `GET /api/audit-log` serves it paginated and filterable to the dashboard. | Same audit log, at production scale/retention, with structured export (CSV/JSON) for regulator or internal-audit review. |
 
 ## API and Integration Checklist
 
-Answered honestly against the actual state of this repo. Where the demo has nothing,
-the target-system answer explains what would exist instead of leaving it blank.
+Answered honestly against the actual state of this repo. Where v0.1 falls short of
+the target, that gap is stated directly rather than glossed over.
 
-1. **API endpoints documented** — Not applicable in this demo; there is no API. Target:
-   the six-stage pipeline (`/auth`, `/scan`, `/redact`, `/gateway`, `/response-scan`,
-   `/audit`) would be documented with OpenAPI/Swagger once the Rust/Axum backend exists.
-2. **Sample request/response provided** — Not applicable; no live endpoint exists to
-   sample. The demo's Audit Log view shows the *shape* of a completed record (session
-   id, user, department, timestamp, entities detected, risk score, decision, reason,
-   model, response-scan result) which maps directly to the intended audit-log API
-   response shape.
-3. **Auth / API key approach explained** — Demo requires no auth (nothing sensitive is
-   served). Target: JWT tokens issued after Argon2-verified login; see
-   `.env.example` for the signing-secret and hashing-parameter placeholders.
-4. **Input validation explained** — Not applicable in the demo (no user input is
-   accepted or processed — it's a read-only view). Target: the Prompt Scanner stage
-   *is* the input-validation layer — every prompt is scanned for sensitive entities and
-   assigned a risk score before anything is forwarded onward; low-confidence detections
-   fail closed (blocked) rather than silently passing through.
-5. **Database schema provided** — Not applicable; no database exists in this repo.
-   `lib/lango/types.ts` documents the intended record shapes (`AuditLogEntry`,
-   `SecurityEvent`, `DriftWeek`, `ParityEntry`, etc.) which are the closest thing to a
-   schema sketch available today and a reasonable starting point for the real
-   PostgreSQL schema.
-6. **Data import/export formats explained** — Not applicable in the demo (nothing is
-   imported or exported). Target: the audit log would need a structured export
-   (e.g. CSV/JSON) for regulator or internal-audit review, since that's the product's
-   core compliance deliverable.
-7. **External services / costs / dependencies listed** — Demo: none — Vercel hosting
-   only, no paid external services. Target: whichever AI provider(s) the institution
-   uses (cost driver, see [BUSINESS_MODEL.md](BUSINESS_MODEL.md)), plus PostgreSQL
-   hosting and any alerting/notification service.
-8. **Notification integrations described** — Not implemented in the demo (the Drift &
-   Security view renders example events, it does not send anything). Target: drift and
+1. **API endpoints documented** — `backend/src/main.rs` wires up seven real,
+   real routes: `POST /api/auth/login`, `POST /api/scan`, `GET /api/audit-log`,
+   `GET /api/fairness`, `GET /api/drift`, `GET /api/security-events`,
+   `GET /api/command-center/summary`, plus `GET /healthz`. No OpenAPI/Swagger spec
+   exists yet — route signatures and response shapes are documented in
+   `backend/src/models.rs` and this file's README setup section (with a working
+   `curl` example) instead.
+2. **Sample request/response provided** — Yes, a real one: see the `curl` example in
+   [README.md's Setup section](../README.md#setup), which logs in and calls
+   `/api/scan` against the live local backend.
+3. **Auth / API key approach explained** — Real: JWT tokens (`jsonwebtoken` crate)
+   issued after Argon2-verified login (`argon2` crate); see `backend/.env.example`
+   for the signing-secret variable. The dashboard itself has no login UI yet — it
+   authenticates as one fixed seeded demo account (see README's Environment
+   Variables section) — a v0.1 shortcut, not the target multi-user auth flow.
+4. **Input validation explained** — Real: `/api/scan` rejects empty prompts and
+   prompts over 20,000 characters with `400 BAD_REQUEST` before touching the
+   detection engine. The Prompt Scanner stage *is* the input-validation layer for
+   sensitive content — every prompt is scanned for sensitive entities and assigned a
+   risk score; low-confidence detections fail closed (`blocked_low_confidence`)
+   rather than silently passing through — real logic in `detection::scan`, with unit
+   tests.
+5. **Database schema provided** — Real: six PostgreSQL migrations in
+   `backend/migrations/` (`users`, `sessions`, `audit_log`, `detection_rules`,
+   `security_events`, `drift_snapshots`), field names matched deliberately to
+   `lib/lango/types.ts`'s `AuditLogEntry` etc. so the API contract lines up cleanly
+   with what the frontend already expects.
+6. **Data import/export formats explained** — Not implemented. The audit log would
+   need a structured export (e.g. CSV/JSON) for regulator or internal-audit review,
+   since that's the product's core compliance deliverable — not built in v0.1;
+   `GET /api/audit-log` (paginated JSON) is the closest thing today.
+7. **External services / costs / dependencies listed** — Local build: PostgreSQL
+   (self-hosted via `docker-compose.yml`, no cost), no paid external services — no
+   live AI provider is called. Target: whichever AI provider(s) the institution uses
+   (cost driver, see [BUSINESS_MODEL.md](BUSINESS_MODEL.md)), plus PostgreSQL hosting
+   and any alerting/notification service.
+8. **Notification integrations described** — Not implemented. Target: drift and
    fairness alerts, plus security events, would push to an operational channel via
-   `ALERT_WEBHOOK_URL` (see `.env.example`).
-9. **No credentials exposed in repo** — Confirmed. This repo contains no real API
-   keys, database URLs, or secrets — `.env.example` contains placeholder values only,
-   and `.env*` is git-ignored (see `.gitignore`).
-10. **Rate limits / retry logic considered** — Not implemented in the demo (there is no
-    API to rate-limit). The Drift & Security view illustrates the intended behaviour as
-    an example event ("Per-user token quota exceeded, request queued for next window")
-    — target system would enforce this at the AI Gateway stage.
-11. **Admin / user roles described** — Not implemented in the demo (single fixed view,
-    no login). Target: at minimum a staff role (submits prompts) and a
-    compliance/admin role (reviews audit log, fairness/drift alerts, manages pattern
-    rules) — the dashboard views in this demo (Audit Log, Fairness Audit, Drift &
-    Security, Pilot & Sandbox) are shaped for the admin/compliance role specifically.
-12. **Audit trail described** — This is the product's core function. Every request
-    would be permanently logged with user, timestamp, department, entities detected,
-    risk score, decision (`cleared_no_entities` / `redacted_and_forwarded` /
-    `blocked_low_confidence`), a human-readable reason string, the AI model used, and
-    the response-scan result — exactly the record shape shown (with synthetic data) in
-    this demo's Audit Log view.
+   `ALERT_WEBHOOK_URL` (see root `.env.example`) — no code sends anything today.
+9. **No credentials exposed in repo** — Confirmed. `backend/.env.example` and
+   `.env.local.example` contain placeholder/dev-only values (the seeded demo
+   password is intentionally documented in the open, since it only ever protects
+   synthetic local data) — real `.env`/`.env.local` files are git-ignored (see
+   `.gitignore` and `backend/.gitignore`).
+10. **Rate limits / retry logic considered** — Not implemented. No request is
+    rate-limited at the API layer today. The Drift & Security view shows illustrative
+    seeded example events (e.g. "Per-user token quota exceeded, request queued for
+    next window") — not output from a live rate limiter.
+11. **Admin / user roles described** — Real, enforced server-side:
+    `users.role` is `staff` (can call `/api/scan`) or `compliance`/`admin`
+    (additionally gated to the five read-only dashboard endpoints via
+    `auth::require_role`) — see `backend/migrations/0001_create_users.sql`.
+12. **Audit trail described** — This is the product's core function, and it's real:
+    every `/api/scan` call writes one `audit_log` row — user, timestamp, department,
+    entities detected, risk score, decision (`cleared_no_entities` /
+    `redacted_and_forwarded` / `blocked_low_confidence`), a human-readable reason
+    string, the AI model used (a literal "not connected" string in v0.1), and the
+    response-scan result. Raw prompt text is never stored, only a SHA-256 hash.

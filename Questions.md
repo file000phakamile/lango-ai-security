@@ -176,3 +176,83 @@ research focus and contribution area and replace the placeholder + inferred list
 `docs/TEAM_CAPABILITY.md` before final submission** — as instructed, this is flagged
 here rather than settled unilaterally. Her "Skills / background" and "Contribution
 area" fields remain `_TODO_`, unchanged, since only the role was specified this round.
+
+## 11. Real backend build — database choice, environment blockers, bugs found by actually running it
+
+This is the session that took Lango from a frontend-only mock demo to a real,
+end-to-end-verified system: Rust + Axum API, PostgreSQL schema, a working
+detection engine, seed script, and frontend wiring. Judgment calls and genuine
+blockers below.
+
+**sqlx over Diesel — no strong reason to deviate.** sqlx's async-native design fits
+Axum's async runtime directly (Diesel's core is sync; async support is a bolted-on
+wrapper), and its runtime-checked queries (`query_as::<_, T>`) don't require a
+`DATABASE_URL` at *compile* time the way Diesel's schema macros or sqlx's own
+`query!`/`query_as!` compile-time-checked macros do — simpler for a v0.1 that
+needs to build in CI or on a machine without a live DB. Went with sqlx as the
+task allowed.
+
+**Frontend has no login screen — a demo-only shortcut, not a target-architecture
+decision.** The dashboard authenticates as one fixed seeded `compliance` account
+automatically (`lib/lango/api-client.ts`), since building a real multi-user login
+UI wasn't in scope for wiring up the five *existing* dashboard views. The demo
+account's password is intentionally committed in the open (`.env.local.example`,
+`backend/src/bin/seed.rs`, README) since it only ever protects synthetic local
+data — flagged here explicitly as a v0.1 shortcut, not something to carry into a
+real deployment.
+
+**Environment had no Rust linker, no Docker, and an inaccessible existing
+Postgres — worked around all three rather than stopping:**
+- No MSVC Build Tools and no MinGW/gcc were present, so `cargo check` failed at
+  the link step on the very first attempt. Asked you directly rather than
+  guessing; you chose the lightweight-GNU-toolchain option. Installed
+  `BrechtSanders.WinLibs.POSIX.UCRT` (MinGW-w64 GCC) via `winget` and switched
+  the default Rust toolchain to `stable-x86_64-pc-windows-gnu` via `rustup`.
+  Both are standard, reversible dev-tool installs (`rustup toolchain uninstall`
+  / uninstall the winget package to revert) — not touched anything else.
+- Docker Desktop is not installed, so `docker-compose.yml` (still the
+  documented, recommended path in README for anyone who *does* have Docker)
+  couldn't be exercised directly. Two PostgreSQL server installs (17 and 18)
+  were already present and running natively as Windows services on port 5432,
+  but their superuser password was unknown to me and I did not attempt to
+  guess or reset it — that's your credential, not mine to touch. Instead, used
+  the same already-installed `initdb`/`pg_ctl` binaries to stand up a second,
+  fully separate PostgreSQL data directory on port 5433 with fresh
+  known credentials (`lango`/`lango_dev_password`, matching
+  `docker-compose.yml`'s values), scoped to a scratch directory outside the
+  repo. This is what actually ran migrations, the seed script, and every
+  verification query in this session — your existing Postgres installs and
+  their data were never touched. That scratch instance is not something this
+  repo depends on going forward; `docker-compose.yml` (or your own Postgres on
+  its usual port 5432) is the real, intended local setup.
+
+**Three real bugs caught only by actually compiling and running the code — not
+by review, which is exactly why "run it yourself" was worth doing:**
+1. `backend/Cargo.toml`'s `sqlx` dependency listed `default-features = false`
+   without including sqlx's `"macros"` feature, so every `#[derive(sqlx::FromRow)]`
+   failed to compile. Added the feature.
+2. `detection::rules::API_KEY_GENERIC_RE` used regex lookahead
+   (`(?=...)`) to require "at least one digit AND one letter" in a long token —
+   Rust's `regex` crate does not support look-around at all (a deliberate
+   design tradeoff for linear-time matching guarantees), so this pattern never
+   compiled, and by extension every test in `detection::scan` that shares its
+   `once_cell::Lazy` module was failing via lazy-init poisoning. Simplified to
+   a length-only match (already the lowest-confidence, fail-closed-only rule in
+   the file, so broadening it slightly doesn't create a new false-redaction
+   risk) — see the updated comment in `rules.rs` for the full reasoning.
+3. `routes/command_center.rs`'s `fairness_alerts` query used a bare
+   `CASE WHEN … THEN 1 ELSE 0 END`, which Postgres infers as `int4`, bound
+   against a Rust `i64` — a real runtime 500 on `/api/command-center/summary`,
+   caught by curling the endpoint per the task's own verification instructions,
+   not by reading the code. Fixed with an explicit `::bigint` cast.
+4. (Minor, my own new code) `backend/src/bin/seed.rs`'s drift-jitter closure
+   needed `let mut jitter = |…|` since it captures `rng` by mutable reference —
+   caught immediately by `cargo check`.
+
+All eight backend unit tests pass; the full stack (Postgres → migrations → seed
+→ Axum → Next.js) was run end-to-end in this session, including a Playwright
+screenshot pass over all five dashboard views confirming live data (not mock)
+renders correctly, plus a deliberate backend-down test confirming the
+`NEXT_PUBLIC_USE_MOCK_DATA` fallback works and degrades cleanly with a console
+warning instead of a crash. See the updated README.md Setup section for the
+exact commands.

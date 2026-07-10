@@ -24,7 +24,10 @@ classification of the system itself — a gateway positioned to see this categor
 data before redaction, and to hold the audit trail of when and where it was flagged,
 is inherently a high-value target and a system whose failure modes (a missed
 detection, a compromised gateway, a fairness gap in production) have real
-institutional and individual consequences. This demo currently carries none of that
-risk in practice, since it has no backend and no real data — but the classification
-describes the target system this submission is proposing to build, and is assigned
-accordingly rather than claiming "low risk" because today's demo happens to be inert.
+institutional and individual consequences. A real backend and detection engine now
+exist (see [ARCHITECTURE.md](ARCHITECTURE.md)), but this local v0.1 build still
+carries little of that risk in practice: no live AI provider connection, no real
+institutional data, no production hardening. The classification above describes the
+target system this submission is proposing to build, and is assigned accordingly
+rather than claiming "low risk" because today's build is still local and inert
+outside a developer's own machine.
