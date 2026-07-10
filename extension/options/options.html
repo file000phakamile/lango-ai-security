@@ -88,7 +88,11 @@
   </head>
   <body>
     <h1><img src="../icons/icon48.png" alt="" /> Lango — AI Data Guard</h1>
-    <p class="intro">Log in with your Lango account to enable prompt scanning on chatgpt.com.</p>
+    <p class="intro">
+      Log in with your Lango account to enable prompt scanning on supported sites (ChatGPT, Claude, Gemini,
+      DeepSeek, Copilot — see <code>extension/USER_GUIDE.md</code> for which of these are actually verified
+      working versus implemented-but-unverified).
+    </p>
 
     <label for="apiBaseUrl">API base URL</label>
     <input id="apiBaseUrl" type="text" placeholder="https://lango-backend-qwkx.onrender.com" />
@@ -107,7 +111,7 @@
     <div id="message"></div>
 
     <p class="note">
-      v0.1, chatgpt.com only. Your JWT is stored in <code>chrome.storage.local</code> for this browser profile
+      v0.1. Your JWT is stored in <code>chrome.storage.local</code> for this browser profile
       only — not synced to other devices. Default API base URL is the live Render backend; override it to
       <code>http://localhost:8080</code> to test against a locally-run backend instead (see
       <code>backend/README</code> / the main repo README's Setup section for running the backend locally). See

@@ -16,11 +16,15 @@
 //     framework state (React, etc.) the site's own JS relies on — see each
 //     adapter's own comments for the specific trick this requires.
 //
-// This split exists so a second site (claude.ai, gemini.google.com) could be
-// added later by writing one new adapter file plus one manifest
-// content_scripts entry, without touching this file. Only chatgpt.com is
-// actually implemented in v0.1 — see extension/README.md and Questions.md
-// for why the other sites aren't just stubbed in as well.
+// This split exists so a second site could be added later by writing one new
+// adapter file plus one manifest content_scripts entry, without touching
+// this file — which is exactly how claude.ai, gemini.google.com,
+// chat.deepseek.com, and copilot.microsoft.com were added alongside the
+// original chatgpt.com adapter. chatgpt.com is the only one of the five
+// verified against a live, logged-in browser session — see
+// extension/USER_GUIDE.md's caveats section and each new adapter file's own
+// header comment for exactly what "unverified" means for that site
+// specifically.
 //
 // Design note on *why* interception happens at the document level via
 // capture-phase listeners rather than binding directly to the composer
@@ -36,6 +40,16 @@ const LangoSiteAdapter = (() => {
   function init(adapter) {
     document.addEventListener("keydown", (e) => onKeydown(e, adapter), true);
     document.addEventListener("click", (e) => onClick(e, adapter), true);
+    // Lets the popup confirm this content script is actually running on the
+    // active tab (not just that the tab's URL matches a supported domain) —
+    // see popup/popup.js's per-tab status check.
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type === "LANGO_PING") {
+        sendResponse({ siteName: adapter.siteName });
+        return true;
+      }
+      return false;
+    });
     console.info(`[Lango] content script active on ${adapter.siteName}`);
   }
 

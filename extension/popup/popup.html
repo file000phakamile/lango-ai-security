@@ -135,6 +135,27 @@
       .hidden {
         display: none !important;
       }
+      .site-list {
+        font-size: 10px;
+        color: #8a93a1;
+        margin: 0 0 10px;
+        line-height: 1.6;
+      }
+      .site-list .verified {
+        color: #2f7a53;
+      }
+      .site-list .unverified {
+        color: #c2660c;
+      }
+      #tabStatus {
+        font-size: 11px;
+        margin-bottom: 10px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        background: #eceff1;
+        color: #5b6270;
+        line-height: 1.4;
+      }
     </style>
   </head>
   <body>
@@ -144,9 +165,15 @@
       <span id="statusText">Checking…</span>
     </div>
 
+    <div class="site-list">
+      Active on: <span class="verified">ChatGPT (verified)</span>,
+      <span class="unverified">Claude, Gemini, DeepSeek, Copilot (unverified)</span>
+    </div>
+    <div id="tabStatus">Checking this tab…</div>
+
     <!-- Shown when NOT logged in: login is right here, no menu-hunting required. -->
     <div id="loggedOutView" class="hidden">
-      <div class="banner">You're not logged in — log in below to enable prompt scanning on chatgpt.com.</div>
+      <div class="banner">You're not logged in — log in below to enable prompt scanning on supported sites.</div>
       <label for="email">Email</label>
       <input id="email" type="email" placeholder="compliance@lango.demo" autocomplete="username" />
       <label for="password">Password</label>
@@ -166,7 +193,10 @@
       <button id="logoutBtn" class="danger">Log out</button>
     </div>
 
-    <p class="note">v0.1 — chatgpt.com only. See extension/README.md for scope and known limitations.</p>
+    <p class="note">
+      v0.1 — see <code>extension/USER_GUIDE.md</code> for a plain-language walkthrough, or
+      <code>extension/README.md</code> for scope and known limitations.
+    </p>
     <script src="popup.js"></script>
   </body>
 </html>

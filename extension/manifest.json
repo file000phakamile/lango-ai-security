@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Lango — AI Data Guard",
-  "version": "0.1.0",
-  "description": "Scans ChatGPT prompts for sensitive entities (national IDs, bank accounts, phone numbers, etc.) and redacts or blocks before sending. v0.1 — chatgpt.com only.",
+  "version": "0.2.0",
+  "description": "Scans AI chat prompts for sensitive entities (national IDs, bank accounts, phone numbers, etc.) and redacts or blocks before sending. v0.1 — chatgpt.com verified working; claude.ai, gemini.google.com, chat.deepseek.com, and copilot.microsoft.com implemented but not yet verified against live pages.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -23,6 +23,10 @@
   "permissions": ["storage"],
   "host_permissions": [
     "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://chat.deepseek.com/*",
+    "https://copilot.microsoft.com/*",
     "https://lango-backend-qwkx.onrender.com/*",
     "http://localhost:8080/*"
   ],
@@ -33,6 +37,42 @@
         "content/ui-banner.js",
         "content/site-adapter.js",
         "content/chatgpt-adapter.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": [
+        "content/ui-banner.js",
+        "content/site-adapter.js",
+        "content/claude-adapter.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": [
+        "content/ui-banner.js",
+        "content/site-adapter.js",
+        "content/gemini-adapter.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": [
+        "content/ui-banner.js",
+        "content/site-adapter.js",
+        "content/deepseek-adapter.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://copilot.microsoft.com/*"],
+      "js": [
+        "content/ui-banner.js",
+        "content/site-adapter.js",
+        "content/copilot-adapter.js"
       ],
       "run_at": "document_idle"
     }

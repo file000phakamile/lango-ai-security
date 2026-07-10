@@ -53,15 +53,18 @@ endpoints over HTTP; see [Setup](#setup) to run both halves locally.
 What's still a deliberate v0.1 simplification, stated plainly: the backend's own "AI
 Gateway" pipeline stage remains a labeled no-op — the Rust backend itself still never
 calls an AI provider's API server-side (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
-**Separately, a real interception mechanism now exists in front of one specific AI
-provider's web UI**: [`extension/`](extension/) is a Manifest V3 browser extension
-that scans and redacts/blocks ChatGPT prompts *in the browser*, before they ever reach
-chatgpt.com's own send action — chatgpt.com only, v0.1, with its DOM-dependent parts
-not verified against a live chatgpt.com session (see
-[extension/README.md](extension/README.md) for exactly what was and wasn't tested).
-This answers the "nothing intercepts real AI traffic yet" gap for that one site,
-through a different architecture (client-side interception, not a server-side
-forwarding proxy) than what the backend's AI Gateway stage implies. No live
+**Separately, a real interception mechanism now exists in front of AI providers' own
+web UIs**: [`extension/`](extension/) is a Manifest V3 browser extension that scans
+and redacts/blocks prompts *in the browser*, before they ever reach the site's own
+send action. It implements five sites — **chatgpt.com is verified working** in a real
+browser session; **claude.ai, gemini.google.com, chat.deepseek.com, and
+copilot.microsoft.com (Microsoft's consumer web chat, not GitHub Copilot) are
+implemented but not yet verified** against a live page (see
+[extension/README.md](extension/README.md) for exactly what was and wasn't tested, and
+[extension/USER_GUIDE.md](extension/USER_GUIDE.md) for a plain-language walkthrough).
+This answers the "nothing intercepts real AI traffic yet" gap for these sites, through
+a different architecture (client-side interception, not a server-side forwarding
+proxy) than what the backend's AI Gateway stage implies. No live
 prompt-injection/rate-limit/DoS detection runs (the Security Events table is seeded
 with illustrative rows, not produced by a live detector); there's no scheduled drift
 job (drift snapshots are computed once at seed time); and the dashboard has no login
@@ -277,12 +280,15 @@ Stated plainly, not softened:
   is always the literal string documenting that no provider is connected) — the Rust
   backend itself never calls an AI provider's API server-side. **What does now exist**:
   [`extension/`](extension/), a browser extension that intercepts prompts client-side
-  in front of ChatGPT's web UI specifically (chatgpt.com only) and redacts/blocks them
-  before they're sent — a real, working, differently-architected answer to "does
-  anything actually gate real AI traffic yet," for that one site. Its DOM-dependent
-  parts were not verified against a live chatgpt.com session — see
+  in front of five AI providers' web UIs and redacts/blocks them before they're sent —
+  a real, working, differently-architected answer to "does anything actually gate real
+  AI traffic yet." **Only chatgpt.com's DOM-dependent parts have been verified**
+  against a live session; **claude.ai, gemini.google.com, chat.deepseek.com, and
+  copilot.microsoft.com are implemented but not yet verified** against live pages —
+  this distinction matters and is not collapsed anywhere it's mentioned. See
   [extension/README.md](extension/README.md)'s Verification and Known fragility
-  sections before relying on it.
+  sections, and each `content/<site>-adapter.js` file's own header comment, before
+  relying on any one of the four unverified sites.
 - **No live security-event detection.** Prompt-injection/rate-limit/DoS detection is
   not implemented; the Security Events table is seeded with illustrative example rows
   (see `backend/src/bin/seed.rs`), not produced by a live detector.

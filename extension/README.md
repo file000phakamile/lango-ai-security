@@ -1,37 +1,66 @@
 # Lango Browser Extension (v0.1)
 
 A Manifest V3 Chrome/Edge extension that puts Lango's redaction layer directly in
-front of ChatGPT's web UI: before a prompt leaves your browser, it's scanned by the
-real Lango backend (the same `/api/scan` endpoint documented in the main repo README),
-and redacted or blocked according to the same fail-closed logic used everywhere else
-in this project.
+front of an AI chat site's web UI: before a prompt leaves your browser, it's scanned by
+the real Lango backend (the same `/api/scan` endpoint documented in the main repo
+README), and redacted or blocked according to the same fail-closed logic used
+everywhere else in this project.
 
-## Scope: chatgpt.com only, v0.1
+**New here? Read [USER_GUIDE.md](USER_GUIDE.md) instead** — a plain-language
+install-and-use walkthrough for a first-time user (judge, mentor, tester), rather than
+this file's developer-facing architecture/verification detail.
 
-This extension supports **chatgpt.com only**. It is not a multi-site tool, and it does
-not claim to be. The code is structured with a site-adapter interface
-(`content/site-adapter.js` defines the contract; `content/chatgpt-adapter.js`
-implements it for chatgpt.com) specifically so a second site — claude.ai,
-gemini.google.com — could be added later as one new adapter file plus one new
+## Scope: five sites, one verified
+
+This extension implements five sites:
+
+| Site | Status |
+|---|---|
+| chatgpt.com | **Verified working** — driven against a real, logged-in browser session (see Verification below) |
+| claude.ai | Implemented, **not yet verified** against a live page |
+| gemini.google.com | Implemented, **not yet verified** against a live page |
+| chat.deepseek.com | Implemented, **not yet verified** against a live page |
+| copilot.microsoft.com (consumer web chat — not GitHub Copilot) | Implemented, **not yet verified** against a live page |
+
+The code is structured with a site-adapter interface (`content/site-adapter.js`
+defines the contract; each `content/<site>-adapter.js` implements it for one site)
+specifically so a new site can be added as one new adapter file plus one new
 `content_scripts` entry in `manifest.json`, without touching the shared interception
-logic. But "structured to make it easier later" is not the same as "supported now":
-no other site is implemented, tested, or claimed to work. See Questions.md in the repo
-root for the specific reasoning behind stopping at one site for this pass.
+logic — this is exactly how the four newer adapters were added alongside the original
+chatgpt.com one, without changing `site-adapter.js`'s orchestration logic at all (one
+addition: a `LANGO_PING` listener the popup uses to confirm a content script is
+actually running on the active tab).
+
+**"Implemented" is not the same as "confirmed working."** Only chatgpt.com has
+actually been driven against a live, logged-in browser session. The other four were
+built using the same best-effort, defensively-ordered selector strategy that worked
+for chatgpt.com, but for the same environment reasons documented below (no display
+server, Playwright's Chromium doesn't support loading real extensions), none of them
+could be verified here. See each adapter file's own header comment for a
+site-specific honest confidence assessment — they are not all equally uncertain (see
+[USER_GUIDE.md](USER_GUIDE.md)'s Caveats section and `Questions.md` for the summary).
 
 ## What it does
 
-1. You type a prompt into ChatGPT and hit Enter or click Send.
-2. The extension intercepts that submit **before** it reaches ChatGPT's own send
+1. You type a prompt into a supported site's chat composer and hit Enter or click
+   Send.
+2. The extension intercepts that submit **before** it reaches the site's own send
    logic, reads the prompt text, and sends it to the Lango backend's `/api/scan`
    endpoint (via the background service worker — see Architecture below).
 3. Depending on the response:
    - **`cleared_no_entities`** — no sensitive entities found. The extension completes
      the send itself, with your original text unchanged.
-   - **`redacted_and_forwarded`** — sensitive entities were found and redacted. The
-     extension replaces the composer's text with the redacted version, then sends
-     *that*.
+   - **`redacted_and_forwarded`** — sensitive entities were found with high enough
+     confidence to redact automatically. The extension replaces the composer's text
+     with the redacted version, then sends *that*.
+   - **`redacted_low_confidence_review`** — a low-but-real-confidence `full_name`
+     match (see `docs/SECURITY_PRIVACY.md`'s Human oversight row for the reasoning).
+     Redacted and sent the same as above, but flagged with a visually distinct amber
+     banner — the prompt is *not* held back, but the event is queryable separately in
+     the audit log for asynchronous compliance review.
    - **`blocked_low_confidence`** — the scanner found something it isn't confident
-     enough about to safely redact. Nothing is sent. You get a banner explaining why
+     enough about to safely redact (near-zero confidence, or a low-confidence
+     *structured* entity type). Nothing is sent. You get a banner explaining why
      (the backend's `reason_string`) and have to edit the prompt yourself and resubmit
      — the extension does not retry automatically.
    - **Any error** (network failure, Lango backend unreachable, expired login) — fails
@@ -41,9 +70,10 @@ root for the specific reasoning behind stopping at one site for this pass.
      unscanned prompt must never slip through just because the scanner itself was
      unreachable.
 4. A small banner near the bottom of the page shows what happened, colour-matched to
-   the dashboard (gold `#8A6323` = redacted, red `#A83A3A` = blocked, green `#2F7A53`
-   = cleared). Non-blocking outcomes auto-dismiss after a few seconds; blocked/error
-   banners stay until you take action.
+   the dashboard (gold `#8A6323` = redacted, amber `#C2660C` = redacted-but-flagged-
+   for-review, red `#A83A3A` = blocked, green `#2F7A53` = cleared). Non-blocking
+   outcomes auto-dismiss after a few seconds; blocked/error banners stay until you
+   take action.
 
 ## Architecture
 
@@ -58,8 +88,22 @@ extension/
     ui-banner.js            Shared banner/toast UI, used by any site adapter
     site-adapter.js          Shared interception orchestration (document-level
                             capture-phase listeners, decision handling, resend
-                            logic) — site-independent
-    chatgpt-adapter.js       chatgpt.com-specific DOM hooks — see Known fragility
+                            logic, and a LANGO_PING responder the popup uses to
+                            confirm a content script is actually running on the
+                            active tab) — site-independent
+    chatgpt-adapter.js       chatgpt.com-specific DOM hooks — VERIFIED, see
+                            Verification below
+    claude-adapter.js        claude.ai-specific DOM hooks — UNVERIFIED, see
+                            Known fragility and the file's own header comment
+    gemini-adapter.js        gemini.google.com-specific DOM hooks — UNVERIFIED,
+                            with an additional known Shadow DOM risk — see the
+                            file's own header comment
+    deepseek-adapter.js      chat.deepseek.com-specific DOM hooks — UNVERIFIED,
+                            and the least confident of the four newer adapters
+                            — see the file's own header comment
+    copilot-adapter.js       copilot.microsoft.com (consumer web chat)-specific
+                            DOM hooks — UNVERIFIED — see the file's own header
+                            comment
   popup/
     popup.html / popup.js   Extension icon popup: THIS is where login happens —
                             an embedded login form shows automatically when not
@@ -83,6 +127,9 @@ back — this keeps every network/auth failure mode centralized in one file
 (`background.js`) instead of duplicated across every future site adapter.
 
 ## Install and use (manual — see Verification below for why this is manual)
+
+For the plain-language version of these same steps (no dev background assumed), see
+[USER_GUIDE.md](USER_GUIDE.md). The steps below are the condensed developer version.
 
 1. Open `chrome://extensions` (or `edge://extensions` on Edge).
 2. Enable **Developer mode** (top-right toggle).
@@ -117,8 +164,14 @@ chatgpt.com's DOM — actually works:
 - Login with wrong credentials → rejected.
 - Login with the real seeded demo credentials → succeeds, JWT stored.
 - `/api/scan` called with that JWT → real detection response for all three decisions
-  (`cleared_no_entities`, `redacted_and_forwarded`, `blocked_low_confidence`), matching
-  the same behavior verified elsewhere in this project via `curl`.
+  that existed at the time (`cleared_no_entities`, `redacted_and_forwarded`,
+  `blocked_low_confidence`), matching the same behavior verified elsewhere in this
+  project via `curl`. The fourth decision, `redacted_low_confidence_review`, was added
+  in a later pass (see `docs/SECURITY_PRIVACY.md`'s Human oversight row) and has not
+  been independently re-run through this same `vm`-mock verification — `site-adapter.js`
+  handles it identically to `redacted_and_forwarded` (see its own code comment), and
+  the backend side of this decision is covered by `cargo test`, but the extension's own
+  handling of this specific decision has only been reviewed, not exercised live.
 - `/api/scan` called with no stored JWT → fails closed (`not_authenticated`), does not
   silently proceed.
 - `/api/scan` called against an unreachable host → fails closed (`network_error`),
@@ -179,6 +232,17 @@ be fixed later:
   reason — there's nothing meaningful to assert against without a real, live
   chatgpt.com DOM to run against. `background.js`'s logic is the part that was
   actually verified (see above).
+- **The four newer adapters (`claude-adapter.js`, `gemini-adapter.js`,
+  `deepseek-adapter.js`, `copilot-adapter.js`) carry every limitation above, plus
+  they've never even had chatgpt.com's level of scrutiny — no live verification
+  attempt was possible for any of the five, but chatgpt.com's selectors are at least
+  based on a long-stable, widely-documented convention (`#prompt-textarea`). The other
+  four are comparatively fresher guesses, with meaningfully different confidence
+  levels between them — read each file's own header comment rather than assuming
+  they're all equally likely to work. `gemini-adapter.js` in particular calls out a
+  specific structural risk (a possible closed Shadow DOM around Gemini's composer)
+  that could mean it doesn't work at all, not just "might break later" the way the
+  others might.
 
 ## Local development
 

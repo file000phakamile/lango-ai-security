@@ -440,3 +440,59 @@ a dedicated review-queue KPI becomes a real product ask.
 **No proposal PDF found in this repo**, consistent with item 8 above — searched again
 (`**/*.pdf`, repo root) before touching any documentation for this task, per the
 instruction not to edit that document if present. None exists here to leave alone.
+
+## 16. Four new site adapters (claude.ai, gemini.google.com, chat.deepseek.com,
+copilot.microsoft.com) — all four are UNVERIFIED, with real per-site confidence
+differences that matter
+
+**None of these four adapters was loaded as a real extension and driven against a
+live page, for the identical reasons chatgpt.com's own adapter wasn't verifiable
+either** (see item 14 above): no display server in this environment, and Playwright's
+headless Chromium build doesn't support loading real extensions at all. This applies
+equally to all four — but "equally unverified" is not the same as "equally likely to
+be correct." Honest, per-site confidence, from most to least confident:
+
+- **claude.ai (`content/claude-adapter.js`) — moderate confidence.** claude.ai's
+  composer has historically been a ProseMirror-based contenteditable editor, the same
+  editor family as chatgpt.com's own composer, so the same category of technique
+  (direct `.textContent` assignment plus a synthetic `InputEvent`) was applied with
+  reasonable, if unconfirmed, expectation it's the right approach. The specific
+  aria-label and class-name selectors used are a best guess, not confirmed against a
+  live DOM.
+- **gemini.google.com (`content/gemini-adapter.js`) — moderate-to-low confidence,
+  with one specific structural risk flagged, not just general uncertainty.** Gemini's
+  composer has historically been a custom `<rich-textarea>` element wrapping a
+  Quill-editor-style contenteditable div. If that custom element uses a **closed**
+  Shadow DOM (plausible for a Google web product, and not something checkable without
+  a live session), `document.querySelector` cannot see inside it at all —
+  `findComposer` would return `null` and this adapter would do nothing whatsoever on
+  Gemini, not just "might break on a future UI change" the way the others are framed.
+  This is flagged explicitly in the file's own header comment and in
+  `extension/USER_GUIDE.md`'s caveats.
+- **copilot.microsoft.com (`content/copilot-adapter.js`) — moderate confidence.**
+  Based on copilot.microsoft.com's lineage from Bing Chat's consumer web interface,
+  which historically used a plain `<textarea>` composer (`id="userInput"` in some
+  past versions) rather than a contenteditable rich-text editor — genuinely uncertain
+  whether that's still accurate today.
+- **chat.deepseek.com (`content/deepseek-adapter.js`) — lowest confidence of the
+  four, stated plainly rather than dressed up.** Unlike the other three sites, there
+  isn't a well-documented, widely-known public convention for DeepSeek's web chat
+  composer to build on. The selectors used are a generic best-effort guess at a
+  simple chat composer's likely shape (a plain `<textarea>`), not a claim of specific
+  knowledge of this site's actual current markup. This file should be the first one
+  rewritten from scratch after checking chat.deepseek.com's real DOM directly, not
+  the first one trusted.
+
+All four adapters follow the same fail-**quiet** (not fail-open) failure mode as
+chatgpt.com's own adapter if their selectors don't match anything: `findComposer`
+returns `null`, `LangoSiteAdapter` does nothing on that page (no interception, no
+banner — indistinguishable from the extension not being installed), rather than
+sending an unscanned prompt through. This was a deliberate design choice for
+chatgpt.com's adapter already (fail-quiet rather than fail-open is still
+fail-**safe** from a data-exfiltration standpoint, even though it's a worse user
+experience than a loud error), and nothing about extending it to four more sites
+changes that reasoning.
+
+Both `extension/USER_GUIDE.md`'s Caveats section and each adapter file's own header
+comment repeat this same honest framing — this is not a case of softening the message
+in one place and stating it plainly in another.

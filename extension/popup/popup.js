@@ -1,5 +1,19 @@
 const DEFAULT_API_BASE_URL = "https://lango-backend-qwkx.onrender.com";
 
+// Kept in sync with manifest.json's content_scripts matches by hand — only
+// five entries, so a build step to derive this list felt like more
+// machinery than the situation warrants. `verified` must stay honest: only
+// chatgpt.com has actually been driven against a live, logged-in browser
+// session (see extension/USER_GUIDE.md's caveats and Questions.md).
+const SUPPORTED_SITES = [
+  { host: "chatgpt.com", label: "ChatGPT", verified: true },
+  { host: "claude.ai", label: "Claude", verified: false },
+  { host: "gemini.google.com", label: "Gemini", verified: false },
+  { host: "chat.deepseek.com", label: "DeepSeek", verified: false },
+  { host: "copilot.microsoft.com", label: "Copilot", verified: false },
+];
+
+const tabStatusEl = document.getElementById("tabStatus");
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 const loggedOutView = document.getElementById("loggedOutView");
@@ -8,6 +22,48 @@ const scanCountEl = document.getElementById("scanCount");
 const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
 const loginMessage = document.getElementById("loginMessage");
+
+// Reports on the CURRENT tab specifically — distinct from the static
+// "Active on: ..." site list above, which just states what this extension
+// supports in general. This actually queries whether the Lango content
+// script is running on the page open right now, rather than assuming it
+// from the URL alone (a content script can fail to inject or fail to
+// initialize even on a matching URL, e.g. if the page loaded before the
+// extension did).
+function refreshTabStatus() {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs && tabs[0];
+    let hostname = null;
+    try {
+      hostname = tab && tab.url ? new URL(tab.url).hostname : null;
+    } catch {
+      hostname = null;
+    }
+    const match = hostname && SUPPORTED_SITES.find((s) => hostname === s.host || hostname.endsWith(`.${s.host}`));
+
+    if (!tab || !tab.id || !match) {
+      tabStatusEl.textContent = "This tab: not a Lango-supported site";
+      return;
+    }
+
+    chrome.tabs.sendMessage(tab.id, { type: "LANGO_PING" }, (resp) => {
+      // chrome.runtime.lastError is set (not thrown) when there's no
+      // listener on the other end — e.g. the content script hasn't loaded
+      // yet, or failed during its own initialization. Reading it here is
+      // required to prevent Chrome from logging an "Unchecked runtime.lastError"
+      // warning to the console even though we're handling the failure case
+      // explicitly below.
+      const injected = !chrome.runtime.lastError && resp && resp.siteName;
+      if (injected) {
+        tabStatusEl.textContent = match.verified
+          ? `Active on this tab: ${match.label} (verified)`
+          : `Active on this tab: ${match.label} (unverified adapter — see USER_GUIDE.md)`;
+      } else {
+        tabStatusEl.textContent = `${match.label} detected, but Lango isn't responding on this tab yet — try reloading the page.`;
+      }
+    });
+  });
+}
 
 function setLoginMessage(text, kind) {
   loginMessage.textContent = text || "";
@@ -42,6 +98,7 @@ function refreshStatus() {
 }
 
 refreshStatus();
+refreshTabStatus();
 
 document.getElementById("loginBtn").addEventListener("click", async () => {
   const email = emailInput.value.trim();
