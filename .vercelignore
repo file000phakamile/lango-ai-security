@@ -1,0 +1,9 @@
+# This is the Vercel project root (see .vercel/project.json) — Vercel has no
+# "Root Directory" scoped subfolder to hide backend/ behind, so it must be
+# excluded here instead. The Rust backend is hosted separately on Render
+# (see render.yaml); Vercel never needs to see its source or build output.
+backend/
+
+node_modules/
+.next/
+.git/
