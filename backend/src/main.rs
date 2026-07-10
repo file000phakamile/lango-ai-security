@@ -1,0 +1,77 @@
+use axum::{
+    routing::{get, post},
+    Router,
+};
+use sqlx::postgres::PgPoolOptions;
+use axum::http::{HeaderValue, Method};
+use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
+
+use lango_backend::{config::Config, routes, state::AppState};
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "lango_backend=info,tower_http=info".into()),
+        )
+        .init();
+
+    let config = Config::from_env();
+
+    let db = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&config.database_url)
+        .await
+        .expect("failed to connect to Postgres — is it running? see docker-compose.yml");
+
+    sqlx::migrate!("./migrations")
+        .run(&db)
+        .await
+        .expect("failed to run database migrations");
+
+    let port = config.port;
+    let state = AppState { db, config: config.clone() };
+
+    // v0.1 assumes a single known frontend origin (the Next.js dev server, or
+    // whatever CORS_ORIGIN is set to) rather than a wildcard — a small, real
+    // security improvement over `Any` that costs nothing in a local setup.
+    let cors_origin: HeaderValue = config
+        .cors_origin
+        .parse()
+        .expect("CORS_ORIGIN must be a valid origin, e.g. http://localhost:3000");
+    let cors = CorsLayer::new()
+        .allow_origin(cors_origin)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([axum::http::header::AUTHORIZATION, axum::http::header::CONTENT_TYPE]);
+
+    let app = Router::new()
+        .route("/api/auth/login", post(routes::auth::login))
+        .route("/api/scan", post(routes::scan::scan))
+        .route("/api/audit-log", get(routes::audit_log::get_audit_log))
+        .route("/api/fairness", get(routes::fairness::get_fairness))
+        .route("/api/drift", get(routes::drift::get_drift))
+        .route(
+            "/api/security-events",
+            get(routes::security_events::get_security_events),
+        )
+        .route(
+            "/api/command-center/summary",
+            get(routes::command_center::get_summary),
+        )
+        .route("/healthz", get(|| async { "ok" }))
+        .with_state(state)
+        .layer(TraceLayer::new_for_http())
+        .layer(cors);
+
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+        .await
+        .expect("failed to bind port");
+
+    tracing::info!("lango-backend listening on http://0.0.0.0:{}", port);
+
+    axum::serve(listener, app)
+        .await
+        .expect("server error");
+}

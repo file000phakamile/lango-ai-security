@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: lango-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lango
+      POSTGRES_PASSWORD: lango_dev_password
+      POSTGRES_DB: lango
+    ports:
+      - "5432:5432"
+    volumes:
+      - lango_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lango -d lango"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  lango_pg_data:
