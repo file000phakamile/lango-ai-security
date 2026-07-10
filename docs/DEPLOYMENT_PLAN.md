@@ -2,13 +2,17 @@
 
 This plan covers two distinct things, kept clearly separate: (1) how the **judge-facing
 demo in this repo** is deployed today, and (2) how a **real pilot deployment of the
-target production system** would be run. Do not conflate the two — the demo has no
-backend; the pilot plan below describes what would need to be built first.
+target production system** would be run. Do not conflate the two — the demo backend
+(when deployed) is a real, working v0.1, not the tenant-isolated, hardened system the
+pilot plan below describes.
 
 ## Deployment environment
 
-- **Demo (as-built)**: Vercel's standard Next.js hosting, serverless, no custom
+- **Demo frontend**: Vercel's standard Next.js hosting, serverless, no custom
   infrastructure. Single environment, no staging/production split.
+- **Demo backend**: Render, via Blueprint (`render.yaml` at the repo root) — a single
+  Docker-based web service plus a managed Postgres instance, both on the free tier.
+  Single environment, no staging/production split, same as the frontend.
 - **Target pilot**: a tenant-isolated environment (per docs/ARCHITECTURE.md) — the
   pilot institution's traffic and data isolated from any other tenant, likely a
   dedicated database and application instance per institution rather than shared
@@ -16,12 +20,25 @@ backend; the pilot plan below describes what would need to be built first.
 
 ## Hosting provider
 
-- **Demo**: Vercel (`lango-app-dusky.vercel.app`), deployed via the Vercel CLI
+- **Demo frontend**: Vercel (`lango-app-dusky.vercel.app`), deployed via the Vercel CLI
   (`vercel --prod`), not connected to GitHub for auto-deploy.
+- **Demo backend**: Render — a web service (Rust/Axum, built from `backend/Dockerfile`)
+  and a managed Postgres database, both free tier, deployed via Render's Blueprint
+  (Infrastructure as Code) model from `render.yaml`. **Free-tier honesty note**: the
+  web service spins down after 15 minutes of inactivity; the first request after an
+  idle period takes roughly 30-60 seconds while it spins back up. This is expected
+  Render free-tier behaviour, not a bug — see the same caveat in README.md and
+  docs/ARCHITECTURE.md. The frontend's mock-data fallback (`NEXT_PUBLIC_USE_MOCK_DATA`,
+  see README.md) means a judge hitting a cold backend still sees the dashboard
+  immediately with mock data while the real backend wakes up, rather than a blank
+  loading screen.
 - **Target pilot**: not yet selected. Candidates would need to satisfy data-residency
   and compliance requirements of the pilot institution's sector (e.g. financial
   services hosting requirements for a bank pilot) — this decision is deferred until a
-  specific pilot institution and jurisdiction are confirmed.
+  specific pilot institution and jurisdiction are confirmed. Render's free tier is a
+  demo/evaluation choice only — a real pilot would need a paid plan at minimum (no
+  spin-down, real backups, higher resource limits) and likely a different provider
+  entirely once data-residency requirements are known.
 
 ## Operator
 
@@ -53,7 +70,9 @@ path for the "review" state a fairness or drift alert triggers.
 
 ## Monitoring
 
-- **Demo**: none — it's a static frontend with no live system to monitor.
+- **Demo**: Render's built-in service health checks (`healthCheckPath: /healthz` in
+  `render.yaml`) and dashboard logs/metrics — nothing beyond Render's own free-tier
+  tooling; no external uptime or alerting service is wired up.
 - **Target pilot**: the demo's Drift & Security view illustrates the intended shape —
   PSI / KL-divergence drift tracking with an alert threshold (0.20), and a security
   event feed (prompt injection attempts, rate limiting, DoS mitigation). In production
@@ -62,8 +81,10 @@ path for the "review" state a fairness or drift alert triggers.
 
 ## Backup / recovery
 
-Not applicable to the demo (no data is persisted anywhere — it's regenerated from a
-seeded PRNG on every page load). For the target system: the audit log is the
+**Demo**: Render's free-tier Postgres has no automated backups and is deleted after 90
+days of the database's creation (a Render free-tier limit, not a Lango decision) — the
+demo database is reseeded from `backend/src/bin/seed.rs`, not backed up, since
+everything in it is synthetic. For the target system: the audit log is the
 system-of-record for compliance evidence, so it would need standard PostgreSQL backup
 practice (point-in-time recovery, regular tested restores) — audit log loss would
 itself be a compliance failure, not just an operational inconvenience.

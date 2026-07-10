@@ -256,3 +256,50 @@ renders correctly, plus a deliberate backend-down test confirming the
 `NEXT_PUBLIC_USE_MOCK_DATA` fallback works and degrades cleanly with a console
 warning instead of a crash. See the updated README.md Setup section for the
 exact commands.
+
+## 12. Render Blueprint deployment setup — security note and CLI validation gap
+
+**A live Render API key was pasted directly into the task prompt.** Did not use it
+anywhere — not to set `RENDER_API_KEY`, not in any file, not logged. Flagged this to
+you immediately and asked you to rotate/regenerate it in the Render Dashboard
+(Account Settings → API Keys) regardless of anything else in this session, since it's
+now sitting in plaintext conversation history whether or not I touch it.
+
+**`RENDER_API_KEY` was not actually set in the environment**, despite the task
+description saying it was — checked both the Bash and PowerShell sessions directly.
+
+**`npm install -g render-cli` installs the wrong package.** The `render-cli` package
+on npm (`debrouwere/render`) is an unrelated HTML/template-rendering CLI tool with no
+connection to Render.com — a red flag was its `consolidate` templating-engine
+dependency, confirmed by checking `npm view render-cli` metadata and the installed
+binary's `--help` output. Uninstalled it immediately. The actual Render CLI is
+`render-oss/cli` on GitHub, with no official npm package; installed the Windows
+binary (`cli_2.21.0_windows_amd64.zip`) directly from the GitHub release, verifying
+its SHA256 against the release's published `SHA256SUMS` file before running it.
+
+**`render blueprints validate` was not run against live Render state.** The CLI
+installed and ran fine, but `blueprints validate` does real semantic validation
+(valid plans/regions, conflict-checking against existing account resources — not
+just offline YAML linting) and requires an authenticated workspace. Rather than use
+the compromised pasted key, asked you directly; you chose to rotate the key and
+export a fresh one yourself via the `!` prefix so it never passes through my
+context. **This means `render.yaml`'s correctness rests on manual review against
+Render's official Blueprint spec docs (field names for `runtime: docker`,
+`dockerfilePath`/`dockerContext`, `healthCheckPath`, `fromDatabase.connectionString`,
+`sync: false`, and the `databases:` section — all confirmed against
+render.com/docs/blueprint-spec), not on a live validation pass, unless you've since
+run it yourself with the rotated key.** If you haven't: run
+`render blueprints validate` from the repo root once you have a workspace set
+(`render workspace set <id>`) and let me know if it reports anything — I'd want to
+fix it before you actually click "New > Blueprint" in the Dashboard.
+
+**Docker was not available to test `docker build` locally** (same as the earlier
+backend session — see #11). `backend/Dockerfile` was written and reviewed carefully
+instead: multi-stage (dependency-caching dummy-build layer, then real build, then a
+slim `debian:bookworm-slim` runtime stage matching the builder's glibc), with a
+`.dockerignore` added to keep the local (Windows-built, Linux-incompatible)
+`target/` directory out of the build context — a real bug this review caught, since
+without it `COPY . .` would have pulled in binaries that don't match the container's
+platform. Not run end-to-end; recommend a real `docker build` (or letting Render's
+own build serve as the first real test) before relying on it for anything beyond
+this review.

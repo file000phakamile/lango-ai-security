@@ -1,0 +1,40 @@
+databases:
+  - name: lango-db
+    plan: free
+    databaseName: lango
+    user: lango
+
+services:
+  - type: web
+    name: lango-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /healthz
+    envVars:
+      # Sourced from the Postgres instance defined above — never hardcoded.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lango-db
+          property: connectionString
+
+      # Secrets: intentionally left unset here (sync: false) so Render
+      # prompts for them in the Dashboard during Blueprint setup rather
+      # than storing real values in this file.
+      - key: JWT_SIGNING_SECRET
+        sync: false
+
+      # The Next.js frontend's deployed origin (e.g. your Vercel URL) —
+      # not a secret, but environment-specific and unknown until the
+      # frontend is deployed, so also left for Dashboard entry.
+      - key: CORS_ORIGIN
+        sync: false
+
+      # Not secret, safe to hardcode.
+      - key: RUST_LOG
+        value: lango_backend=info,tower_http=info
+
+    # PORT is not declared here — Render injects it automatically at
+    # runtime, and backend/src/config.rs already reads it from the
+    # environment (falling back to 8080 only when unset, e.g. local dev).

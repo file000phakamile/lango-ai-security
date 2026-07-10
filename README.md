@@ -217,11 +217,24 @@ of the dashboard views.
 
 ## Deployment
 
-Deployed to Vercel via the Vercel CLI (`vercel --prod`), not a GitHub-integration
-auto-deploy — pushing to this repo does **not** automatically redeploy the live demo;
-that requires re-running the CLI (or wiring up Vercel's Git integration separately).
-See [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md) for the demo hosting details and
-the target pilot deployment plan.
+**Frontend**: deployed to Vercel via the Vercel CLI (`vercel --prod`), not a
+GitHub-integration auto-deploy — pushing to this repo does **not** automatically
+redeploy the live demo; that requires re-running the CLI (or wiring up Vercel's Git
+integration separately).
+
+**Backend**: set up for deployment to [Render](https://render.com) as a Blueprint
+(`render.yaml` at the repo root defines the web service + managed Postgres database,
+both free tier) — deploy it via the Render Dashboard's *New > Blueprint*, connecting
+this repo; `render.yaml` prompts for the secret values (`JWT_SIGNING_SECRET`,
+`CORS_ORIGIN`) rather than storing them in the file. **Free-tier honesty note**: the
+web service spins down after 15 minutes of inactivity — the first request after an
+idle period takes roughly 30-60 seconds while it spins back up. This is expected
+Render free-tier behaviour, not a bug. If the frontend is pointed at a cold backend, it
+falls back to mock data automatically (see [Environment
+Variables](#environment-variables)) rather than showing a blank screen while it wakes.
+
+See [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md) for the full demo hosting
+details and the target pilot deployment plan.
 
 ## Known Limitations
 

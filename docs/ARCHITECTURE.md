@@ -7,17 +7,24 @@ it is genuinely functioning code, not a simulation. It is still **not
 production-hardened**: no live AI provider connection, no live security-event
 detection, no scheduled jobs, no login UI, no multi-tenant isolation. The columns below
 are not the same system — conflating "runs locally" with "ready for a pilot
-institution" would misrepresent what actually exists. The **deployed Vercel demo**
-(no backend hosted alongside it) still runs on the client-side mock generator via
-`NEXT_PUBLIC_USE_MOCK_DATA=true` — see [Questions.md](../Questions.md). See also
-[architecture-diagram.svg](architecture-diagram.svg) for the target request pipeline.
+institution" would misrepresent what actually exists. The backend is set up to deploy
+to [Render](https://render.com) as a Blueprint (`render.yaml` at the repo root — see
+docs/DEPLOYMENT_PLAN.md); the **deployed Vercel demo** falls back to the client-side
+mock generator (`NEXT_PUBLIC_USE_MOCK_DATA`) whenever no reachable backend is
+configured. **Free-tier honesty note**: Render's free web-service tier spins down
+after 15 minutes of inactivity, so the first request after an idle period takes
+roughly 30-60 seconds while it wakes back up — expected platform behaviour, not a
+bug; the frontend's mock-data fallback means a judge hitting a cold backend still sees
+the dashboard immediately rather than a blank screen. See [Questions.md](../Questions.md).
+See also [architecture-diagram.svg](architecture-diagram.svg) for the target request
+pipeline.
 
 ## Backend Architecture
 
 | Layer | Local build (v0.1, this repo) | Target production system |
 |---|---|---|
 | **Users** | Whoever runs the stack locally — the dashboard authenticates transparently as one fixed seeded demo account (no login UI yet). | Authenticated staff at a pilot institution, scoped by department/role. |
-| **Access channel** | `npm run dev` (frontend) + `cargo run` (backend) on localhost; the deployed Vercel demo link still serves mock data only, since no backend is hosted publicly. | Same web access channel, but behind institutional authentication; potentially embedded/proxied so staff use it transparently alongside their existing AI tool. |
+| **Access channel** | `npm run dev` (frontend) + `cargo run` (backend) on localhost for local development; the backend can also be deployed to Render via Blueprint (`render.yaml`) and the deployed Vercel demo pointed at it — subject to the free-tier spin-down note above. | Same web access channel, but behind institutional authentication; potentially embedded/proxied so staff use it transparently alongside their existing AI tool. |
 | **Frontend** | Next.js 16 (App Router) + React 19 + TypeScript, Tailwind CSS v4, shadcn-based UI primitives, Recharts for charts. Single client component (`LangoDashboard`) with five sub-views switched by local state — no routing between views. `lib/lango/api-client.ts` fetches real data from the backend and falls back to the old mock generator if it's unreachable. | Same frontend stack, plus a real login flow (replacing the fixed demo-account shortcut) and multi-tenant awareness. |
 | **Backend** | **Real.** Rust + Axum HTTP API (`backend/`) implementing `/api/auth/login`, `/api/scan`, `/api/audit-log`, `/api/fairness`, `/api/drift`, `/api/security-events`, `/api/command-center/summary` — JWT-authenticated, role-gated, real error handling with a consistent JSON error shape. The AI Gateway pipeline stage is present as a labeled no-op (see AI layer row below), not a live call. | Same API surface, hardened: rate limiting, structured audit logging of admin actions, multi-tenant isolation, the AI Gateway stage actually forwarding to a live provider. |
 | **Database** | **Real.** PostgreSQL via `sqlx`, migrations in `backend/migrations/`: `users`, `sessions`, `audit_log`, `detection_rules`, `security_events`, `drift_snapshots`. `docker-compose.yml` spins up Postgres locally; `backend/src/bin/seed.rs` populates realistic sample data by running synthetic prompts through the real detection engine. Raw prompt text is never stored — only a SHA-256 hash (`original_prompt_hash`) plus the redacted version. | Same schema, plus tenant-scoping columns/row-level security, retention policy enforcement, and backup/DR. |
