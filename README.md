@@ -50,13 +50,22 @@ fairness math, and real PSI / KL-divergence drift math — all computed from act
 rows in a `audit_log` table, not fabricated. The Next.js dashboard calls these
 endpoints over HTTP; see [Setup](#setup) to run both halves locally.
 
-What's still a deliberate v0.1 simplification, stated plainly: no live AI provider is
-connected (the "AI Gateway" stage is a labeled no-op — see
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)); no live prompt-injection/rate-limit/DoS
-detection runs (the Security Events table is seeded with illustrative rows, not
-produced by a live detector); there's no scheduled drift job (drift snapshots are
-computed once at seed time); and the dashboard has no login screen of its own — it
-authenticates transparently as a seeded demo account (see
+What's still a deliberate v0.1 simplification, stated plainly: the backend's own "AI
+Gateway" pipeline stage remains a labeled no-op — the Rust backend itself still never
+calls an AI provider's API server-side (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+**Separately, a real interception mechanism now exists in front of one specific AI
+provider's web UI**: [`extension/`](extension/) is a Manifest V3 browser extension
+that scans and redacts/blocks ChatGPT prompts *in the browser*, before they ever reach
+chatgpt.com's own send action — chatgpt.com only, v0.1, with its DOM-dependent parts
+not verified against a live chatgpt.com session (see
+[extension/README.md](extension/README.md) for exactly what was and wasn't tested).
+This answers the "nothing intercepts real AI traffic yet" gap for that one site,
+through a different architecture (client-side interception, not a server-side
+forwarding proxy) than what the backend's AI Gateway stage implies. No live
+prompt-injection/rate-limit/DoS detection runs (the Security Events table is seeded
+with illustrative rows, not produced by a live detector); there's no scheduled drift
+job (drift snapshots are computed once at seed time); and the dashboard has no login
+screen of its own — it authenticates transparently as a seeded demo account (see
 [Environment Variables](#environment-variables)).
 
 **Both halves are now deployed and wired together**: the backend runs on Render
@@ -256,10 +265,16 @@ Stated plainly, not softened:
   production hardening pass, and it hasn't been load-tested or exercised under real
   institutional traffic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full
   v0.1-vs-target breakdown.
-- **No live AI provider connection.** The "AI Gateway" pipeline stage is a labeled
-  no-op (`ai_model_used` is always the literal string documenting that no provider is
-  connected) — Lango gates access to an AI provider by design, but v0.1 doesn't
-  actually call one.
+- **The backend's own "AI Gateway" stage is still a labeled no-op** (`ai_model_used`
+  is always the literal string documenting that no provider is connected) — the Rust
+  backend itself never calls an AI provider's API server-side. **What does now exist**:
+  [`extension/`](extension/), a browser extension that intercepts prompts client-side
+  in front of ChatGPT's web UI specifically (chatgpt.com only) and redacts/blocks them
+  before they're sent — a real, working, differently-architected answer to "does
+  anything actually gate real AI traffic yet," for that one site. Its DOM-dependent
+  parts were not verified against a live chatgpt.com session — see
+  [extension/README.md](extension/README.md)'s Verification and Known fragility
+  sections before relying on it.
 - **No live security-event detection.** Prompt-injection/rate-limit/DoS detection is
   not implemented; the Security Events table is seeded with illustrative example rows
   (see `backend/src/bin/seed.rs`), not produced by a live detector.

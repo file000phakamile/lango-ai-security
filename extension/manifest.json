@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Lango — AI Data Guard",
+  "version": "0.1.0",
+  "description": "Scans ChatGPT prompts for sensitive entities (national IDs, bank accounts, phone numbers, etc.) and redacts or blocks before sending. v0.1 — chatgpt.com only.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://lango-backend-qwkx.onrender.com/*",
+    "http://localhost:8080/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": [
+        "content/ui-banner.js",
+        "content/site-adapter.js",
+        "content/chatgpt-adapter.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

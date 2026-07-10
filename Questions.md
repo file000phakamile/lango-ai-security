@@ -353,3 +353,71 @@ use it after it's already unavoidably in the transcript provides no additional
 protection — but flagged it for rotation each time, including this one
 (`rnd_4HUS...`). If this comes up again: the working form is `export
 RENDER_API_KEY=value` (bash syntax, no `$env:`, no quotes required).
+
+## 14. Browser extension (v0.1) — multi-site architecture decision, and why chatgpt.com's DOM was never actually verified live
+
+**Multi-site adapter pattern, built but deliberately not filled in beyond one site.**
+`extension/content/site-adapter.js` defines an adapter interface (`findComposer`,
+`findSendButton`, `readText`, `writeText`, `siteName`) plus all the shared
+interception/decision/banner orchestration logic, independent of any site's DOM.
+`extension/content/chatgpt-adapter.js` is the only implementation. Adding claude.ai or
+gemini.google.com later means writing one new adapter file plus one new
+`content_scripts` manifest entry — the orchestration logic doesn't change. This
+structure was worth building now (it's not extra work, it's just *where* the
+site-specific code lives), but per the task's own instruction, only chatgpt.com is
+actually implemented, tested, or claimed to work — no stub/placeholder adapters for
+other sites were added, since a stub that looks like support but isn't would be worse
+than no mention at all.
+
+**chatgpt.com's live DOM structure was never actually verified — two independent
+blockers, tried in this order, both logged here rather than silently worked around:**
+
+1. **chatgpt.com itself is unreachable from this sandboxed environment.** Both a
+   headless Playwright/Chromium navigation and a forced non-headless launch (with
+   `--headless=new` and `--no-sandbox`) hit a Cloudflare "Just a moment..." bot-check
+   interstitial before the real React app ever mounted — confirmed by checking
+   `document.title`/`document.body.innerText` after the navigation, not just assumed
+   from the page title. There is also no OpenAI account available in this environment
+   to log in with, which would be required regardless of the Cloudflare issue.
+2. **Loading the extension itself as a real browser extension also failed, for a
+   separate reason.** Playwright's default `headless: true` uses a stripped-down
+   "headless shell" Chromium build (`chromium-headless-shell`, confirmed via the
+   installed package name) that Chromium does not support extension-loading in at
+   all — `--load-extension`/`--disable-extensions-except` were accepted as flags but
+   produced no service worker and no extension-related CDP target, confirmed by
+   polling `Target.getTargets` directly over 9 seconds, not just a single check.
+   Forcing the full (non-headless-shell) `chromium` binary via `headless: false` +
+   Chrome's own `--headless=new` argument — the standard documented workaround for
+   this exact limitation — launched without erroring this time, but *still* produced
+   no extension target. This environment appears to have no display server at all
+   (an earlier, unrelated `headless: false` attempt with no `--headless=new` override
+   failed outright with "Target page, context or browser has been closed"), which is
+   the most likely reason even the workaround didn't fully resolve it.
+
+**What was actually done instead, to avoid shipping something entirely unverified:**
+`extension/background.js` — the part of the extension independent of chatgpt.com's
+DOM — was loaded unmodified (via Node's `vm` module, not reimplemented) with a
+minimal in-memory mock of `chrome.storage.local`, and its real `login()`/
+`scanPrompt()` functions were called against the actual live production backend
+(`https://lango-backend-qwkx.onrender.com`). This confirmed: correct-credential login
+stores a real JWT; wrong-credential login is rejected; `/api/scan` with that JWT
+returns real detection output for all three decisions (verified `cleared_no_entities`,
+`redacted_and_forwarded` with a Luhn-valid card number, and `blocked_low_confidence`
+with the same low-confidence-name prompt used in earlier backend testing); `/api/scan`
+with no stored JWT fails closed; and `/api/scan` against an unreachable host also
+fails closed. This is real, meaningful verification of the extension's non-DOM half —
+but it is not the same thing as confirming the DOM-interception half actually works
+against a live chatgpt.com page, which nobody has done yet. See
+`extension/README.md`'s Verification section for the same information written for
+end-user consumption, and its Known fragility section for what to check first if it
+doesn't work when tested manually.
+
+**Selector choices in `chatgpt-adapter.js`** (`#prompt-textarea` for the composer,
+`button[data-testid="send-button"]` for send) are based on publicly documented
+chatgpt.com UI conventions that have historically been relatively stable identifiers
+even as the underlying element type changed (plain `<textarea>` at one point,
+ProseMirror-based `contenteditable` rich-text editor at another) — not verified
+against today's actual markup. `writeText` handles both element types defensively for
+exactly this reason, with the `contenteditable` path explicitly flagged in its own
+code comment as the less reliable of the two (it bypasses ProseMirror's transaction
+system by setting `.textContent` directly).
