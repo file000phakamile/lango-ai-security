@@ -1,30 +1,39 @@
 # Architecture — Lango / AI Data Guard
 
-This document is split into **local-build (v0.1, this repo)** and **target production**
-columns for every row. As of this pass, the local build has a real Rust + Axum backend,
-a real PostgreSQL schema, and a real (if intentionally simplified) detection engine —
-it is genuinely functioning code, not a simulation. It is still **not
-production-hardened**: no live AI provider connection, no live security-event
-detection, no scheduled jobs, no login UI, no multi-tenant isolation. The columns below
-are not the same system — conflating "runs locally" with "ready for a pilot
-institution" would misrepresent what actually exists. The backend is set up to deploy
-to [Render](https://render.com) as a Blueprint (`render.yaml` at the repo root — see
-docs/DEPLOYMENT_PLAN.md); the **deployed Vercel demo** falls back to the client-side
-mock generator (`NEXT_PUBLIC_USE_MOCK_DATA`) whenever no reachable backend is
-configured. **Free-tier honesty note**: Render's free web-service tier spins down
-after 15 minutes of inactivity, so the first request after an idle period takes
-roughly 30-60 seconds while it wakes back up — expected platform behaviour, not a
-bug; the frontend's mock-data fallback means a judge hitting a cold backend still sees
-the dashboard immediately rather than a blank screen. See [Questions.md](../Questions.md).
-See also [architecture-diagram.svg](architecture-diagram.svg) for the target request
-pipeline.
+This document is split into **deployed v0.1 (this repo, live today)** and **target
+production** columns for every row. The v0.1 system is real and deployed: a Rust +
+Axum backend on Render, a real PostgreSQL schema, a real (if intentionally simplified)
+detection engine, and a Vercel-hosted Next.js frontend calling it directly — confirmed
+end-to-end (real login, all five dashboard views pulling live data, verified via the
+browser Network tab), not a simulation and not merely "runs on a laptop." It is still
+**not production-hardened**: no live AI provider connection, no live security-event
+detection, no scheduled jobs, no login UI, no multi-tenant isolation, no load testing.
+The columns below are not the same system — conflating "deployed and working" with
+"ready for a pilot institution" would misrepresent what actually exists; the *target
+production* column describes genuinely future work (a real login flow, multi-tenant
+isolation, a live AI provider connection, rate limiting — see
+docs/DEPLOYMENT_PLAN.md's roadmap), not something already built.
+
+Live URLs: frontend at `lango-app-dusky.vercel.app`, backend at
+`lango-backend-qwkx.onrender.com` (Render Blueprint, `render.yaml` at the repo root —
+see docs/DEPLOYMENT_PLAN.md). The frontend still has an automatic fallback to the
+client-side mock generator (`NEXT_PUBLIC_USE_MOCK_DATA`) if the backend is ever
+unreachable, but that is not its default deployed behaviour. **Free-tier honesty
+note**: Render's free web-service tier spins down after 15 minutes of inactivity, so
+the first request after an idle period takes roughly 30-60 seconds while it wakes back
+up — expected platform behaviour, not a bug; the frontend's mock-data fallback means a
+judge hitting a cold backend still sees the dashboard immediately rather than a blank
+screen. See [Questions.md](../Questions.md) for the deployment history, including a
+real incident (production login 401s caused by the seed step never having run against
+Render) that's since been fixed. See also
+[architecture-diagram.svg](architecture-diagram.svg) for the target request pipeline.
 
 ## Backend Architecture
 
-| Layer | Local build (v0.1, this repo) | Target production system |
+| Layer | Deployed v0.1 (this repo, live today) | Target production system |
 |---|---|---|
-| **Users** | Whoever runs the stack locally — the dashboard authenticates transparently as one fixed seeded demo account (no login UI yet). | Authenticated staff at a pilot institution, scoped by department/role. |
-| **Access channel** | `npm run dev` (frontend) + `cargo run` (backend) on localhost for local development; the backend can also be deployed to Render via Blueprint (`render.yaml`) and the deployed Vercel demo pointed at it — subject to the free-tier spin-down note above. | Same web access channel, but behind institutional authentication; potentially embedded/proxied so staff use it transparently alongside their existing AI tool. |
+| **Users** | Anyone reaching the deployed demo — the dashboard authenticates transparently as one fixed seeded demo account (no login UI yet), so there's no per-user identity distinction today. | Authenticated staff at a pilot institution, scoped by department/role. |
+| **Access channel** | Deployed and live: Vercel frontend calling the Render-hosted backend over HTTPS (subject to the free-tier spin-down note above). `npm run dev` (frontend) + `cargo run` (backend) on localhost remain available for local development against the same codebase. | Same web access channel, but behind institutional authentication; potentially embedded/proxied so staff use it transparently alongside their existing AI tool. |
 | **Frontend** | Next.js 16 (App Router) + React 19 + TypeScript, Tailwind CSS v4, shadcn-based UI primitives, Recharts for charts. Single client component (`LangoDashboard`) with five sub-views switched by local state — no routing between views. `lib/lango/api-client.ts` fetches real data from the backend and falls back to the old mock generator if it's unreachable. | Same frontend stack, plus a real login flow (replacing the fixed demo-account shortcut) and multi-tenant awareness. |
 | **Backend** | **Real.** Rust + Axum HTTP API (`backend/`) implementing `/api/auth/login`, `/api/scan`, `/api/audit-log`, `/api/fairness`, `/api/drift`, `/api/security-events`, `/api/command-center/summary` — JWT-authenticated, role-gated, real error handling with a consistent JSON error shape. The AI Gateway pipeline stage is present as a labeled no-op (see AI layer row below), not a live call. | Same API surface, hardened: rate limiting, structured audit logging of admin actions, multi-tenant isolation, the AI Gateway stage actually forwarding to a live provider. |
 | **Database** | **Real.** PostgreSQL via `sqlx`, migrations in `backend/migrations/`: `users`, `sessions`, `audit_log`, `detection_rules`, `security_events`, `drift_snapshots`. `docker-compose.yml` spins up Postgres locally; `backend/src/bin/seed.rs` populates realistic sample data by running synthetic prompts through the real detection engine. Raw prompt text is never stored — only a SHA-256 hash (`original_prompt_hash`) plus the redacted version. | Same schema, plus tenant-scoping columns/row-level security, retention policy enforcement, and backup/DR. |
@@ -70,11 +79,14 @@ the target, that gap is stated directly rather than glossed over.
    need a structured export (e.g. CSV/JSON) for regulator or internal-audit review,
    since that's the product's core compliance deliverable — not built in v0.1;
    `GET /api/audit-log` (paginated JSON) is the closest thing today.
-7. **External services / costs / dependencies listed** — Local build: PostgreSQL
-   (self-hosted via `docker-compose.yml`, no cost), no paid external services — no
-   live AI provider is called. Target: whichever AI provider(s) the institution uses
-   (cost driver, see [BUSINESS_MODEL.md](BUSINESS_MODEL.md)), plus PostgreSQL hosting
-   and any alerting/notification service.
+7. **External services / costs / dependencies listed** — Deployed v0.1: Vercel
+   (frontend hosting) and Render (backend web service + managed Postgres), both on
+   free tiers — no cost today, but see docs/DEPLOYMENT_PLAN.md's free-tier honesty
+   notes (spin-down, no automated backups). Local dev uses `docker-compose.yml`
+   instead of Render's managed Postgres. No paid external services; no live AI
+   provider is called. Target: whichever AI provider(s) the institution uses (cost
+   driver, see [BUSINESS_MODEL.md](BUSINESS_MODEL.md)), plus paid-tier PostgreSQL
+   hosting and any alerting/notification service.
 8. **Notification integrations described** — Not implemented. Target: drift and
    fairness alerts, plus security events, would push to an operational channel via
    `ALERT_WEBHOOK_URL` (see root `.env.example`) — no code sends anything today.

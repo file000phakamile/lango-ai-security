@@ -19,27 +19,36 @@
 
 ## Vanessa Moyo — Team Member
 
-- **Role**: Researcher.
-- **Research focus**: _[Vanessa's research focus — to be confirmed by team]_. No
-  specific domain, institution, or focus area for Vanessa is documented anywhere in
-  this repo (proposal, prior commits, or Questions.md), so this is intentionally left
-  as a placeholder rather than guessed at.
-- **Plausible contribution areas (inference, not confirmed fact)**: a "Researcher"
-  role on a product like Lango could plausibly sit in any of a few places — this is
-  the team's judgment call to make, not something inferred here as settled:
-  - *Regulatory/compliance research* — e.g. aligning the product with Zimbabwe's Data
-    Protection Act and relevant procurement rules for the target institutions.
-  - *Market/user research* — e.g. understanding target-institution needs and pilot
-    readiness (banks, hospitals, ministries).
-  - *Fairness/bias research* — e.g. the Disparate Impact Ratio and language-parity
-    methodology used in the Fairness Audit view.
-  None of these is confirmed — see [Questions.md](../Questions.md) for the note
-  asking the team to confirm and replace this with her actual contribution area
-  before final submission.
-- **Skills / background**: _TODO — to be filled in by the team. Not invented here;
-  leave blank rather than guess._
-- **Contribution area on this submission**: _TODO — to be filled in by the team,
-  replacing the inferred possibilities above with what she actually did._
+- **Role**: Researcher, Product Design. Confirmed by the team.
+- **Research focus**: _[Vanessa's specific research focus/domain — still to be
+  confirmed by team]_. Her role is now confirmed as Researcher, Product Design, but no
+  further detail (specific domain, institution, or prior work) is documented anywhere
+  in this repo, so that narrower detail is still intentionally left as a placeholder
+  rather than guessed at.
+- **Skills / background (reasonable inference from her confirmed role, not
+  additional confirmed fact)**: a Researcher/Product Design role on this specific
+  submission plausibly combines user/institutional research with UX decision-making —
+  this is inferred from the role title and this repo's actual UX artefacts, not a
+  separately confirmed skills list. No technical/engineering skills (coding, the
+  Next.js frontend build, the Rust backend) are attributed to her here, since none is
+  confirmed; see Phakamile Mlala's section above for the confirmed technical work.
+- **Contribution area (reasonable inference from her confirmed role, not confirmed
+  fact)**: plausibly informed two things already visible in this repo's artefacts:
+  - *Target-user framing* — the compliance-officer persona (Nomsa Ndlovu, Head of
+    Compliance) and institutional pain points documented in
+    [UX_DESIGN.md](UX_DESIGN.md)'s User persona / User journey sections, and the
+    primary-user/beneficiary framing in [BUSINESS_MODEL.md](BUSINESS_MODEL.md), are
+    the kind of output user/institutional research would produce — plausibly hers,
+    not confirmed as hers specifically.
+  - *Product design input* — the dashboard's five-view information architecture and
+    the per-chart data-visualisation choices (bar vs. line vs. table vs. KPI tile,
+    matched to what each comparison actually is), both documented in
+    [UX_DESIGN.md](UX_DESIGN.md)'s Information architecture and Data visualisation
+    logic sections, are the kind of output a Product Design contribution would
+    produce — again plausibly hers, not confirmed as hers specifically.
+  **Team: please confirm which of the above (if any) was actually Vanessa's work**,
+  and replace this inferred framing with the confirmed specifics — see
+  [Questions.md](../Questions.md).
 
 ## Tools and external support used
 
@@ -61,9 +70,9 @@ Reformatted from the pilot and deployment milestones already defined in this dem
 - **Day 30**
   - Confirm a pilot institution and department (target scope already defined: a
     regional commercial bank, Credit Risk department, ~30 users).
-  - Sign off the data-use consent flow and provision a tenant-isolated environment.
-  - Begin backend build: stand up the Rust + Axum API skeleton and PostgreSQL schema
-    for the audit log (this repo currently has neither — see
+  - Sign off the data-use consent flow and provision a tenant-isolated environment
+    (the current v0.1 backend — Rust + Axum API and PostgreSQL schema, deployed and
+    verified end-to-end on Render — is real but not yet tenant-isolated; see
     [ARCHITECTURE.md](ARCHITECTURE.md)).
   - Onboard the first cohort of pilot users.
 
@@ -82,5 +91,6 @@ Reformatted from the pilot and deployment milestones already defined in this dem
   - Go/no-go decision on expanding to additional departments (Claims Processing,
     Patient Records, Bursar's Office, Legal Affairs — all already modelled in this
     demo's data structures) or additional institutions, based on real pilot evidence.
-  - Vanessa's contribution area and role to be reflected here with concrete
-    deliverables once filled in above — placeholder pending team input.
+  - Vanessa's role (Researcher, Product Design) is now confirmed above; her specific
+    contribution area is still inferred rather than confirmed — replace with concrete
+    deliverables once the team confirms it.

@@ -41,7 +41,8 @@ the rest of this docs set — kept consistent with them rather than restated loo
 
 **[Switch to live demo here]**
 
-- Live at lango-app-dusky.vercel.app
+- Live at lango-app-dusky.vercel.app — real Rust/Axum backend on Render, real
+  PostgreSQL, not a frontend-only mockup
 - Walk through: Command Center → Audit Log → Fairness Audit → Drift & Security → Pilot & Sandbox
 - Presenter drives the actual app for this section, not slides
 
@@ -71,9 +72,11 @@ the rest of this docs set — kept consistent with them rather than restated loo
 
 ## 9. Roadmap
 
-**30 / 60 / 90-day path from demo to validated pilot**
+**30 / 60 / 90-day path from a real, deployed v0.1 to a validated pilot**
 
-- Day 30: pilot institution and department confirmed, consent signed off, backend build begins
+- Day 30: pilot institution and department confirmed, consent signed off, environment
+  hardened toward tenant isolation (backend already built and deployed — Rust/Axum on
+  Render, real PostgreSQL — this is about hardening it for a pilot, not building it)
 - Day 60: midpoint review — redaction accuracy and fairness measured on real pilot traffic
 - Day 90: full pilot cohort onboarded, go/no-go decision on scale-out
 
@@ -82,5 +85,8 @@ the rest of this docs set — kept consistent with them rather than restated loo
 **Team Lango — and what we need next**
 
 - Phakamile Mlala (Team Leader, Electronic Engineering, NUST Bulawayo) & Vanessa Moyo
+  (Researcher, Product Design)
 - Built with Claude and Claude Code for drafting and implementation — reviewed by the team throughout
-- Ask: a pilot institution partner, and support building out the production backend
+- Ask: a pilot institution partner, and support hardening the now-live v0.1 backend
+  (multi-tenant isolation, a live AI provider connection, rate limiting) for real
+  institutional traffic

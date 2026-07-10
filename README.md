@@ -57,9 +57,16 @@ detection runs (the Security Events table is seeded with illustrative rows, not
 produced by a live detector); there's no scheduled drift job (drift snapshots are
 computed once at seed time); and the dashboard has no login screen of its own — it
 authenticates transparently as a seeded demo account (see
-[Environment Variables](#environment-variables)). The deployed Vercel demo still runs
-on client-side mock data by default (`NEXT_PUBLIC_USE_MOCK_DATA=true`), since no
-backend is hosted alongside it — see [Questions.md](Questions.md) for that call.
+[Environment Variables](#environment-variables)).
+
+**Both halves are now deployed and wired together**: the backend runs on Render
+(`https://lango-backend-qwkx.onrender.com`, real Rust/Axum + PostgreSQL) and the
+deployed Vercel demo calls it directly — confirmed pulling live data (not mock) across
+all five dashboard views via the browser Network tab. `NEXT_PUBLIC_USE_MOCK_DATA` is
+not set on the Vercel deployment, so the mock generator is only ever the *fallback*
+path there now (e.g. during Render's free-tier cold start — see
+[Deployment](#deployment)), not the default. See [Questions.md](Questions.md) for the
+history of how this got wired up.
 
 Full breakdown of demo-vs-target for every layer (frontend, backend, database, AI
 layer, integrations, security, monitoring, outputs) is in
@@ -90,12 +97,14 @@ Real, working, non-simulated code — with real limits, documented honestly:
 ## Data
 
 All data shown in this demo is **synthetic** — no real user, employee, or
-institutional data is used or stored anywhere in this repo. When running against the
-real backend, that data lives in PostgreSQL and is produced by
-[`backend/src/bin/seed.rs`](backend/src/bin/seed.rs), which runs synthetic prompts
-through the real detection engine rather than fabricating risk scores directly; when
-running against the mock fallback, it's generated at runtime in the browser by a
-seeded PRNG. See [docs/DATA_AI_USAGE.md](docs/DATA_AI_USAGE.md) for full detail on
+institutional data is used or stored anywhere in this repo, including in the live
+deployed system. That data genuinely lives in the production PostgreSQL instance on
+Render, produced by [`backend/src/bin/seed.rs`](backend/src/bin/seed.rs), which runs
+synthetic prompts through the real detection engine rather than fabricating risk
+scores directly — real database rows, real detection output, fabricated input content.
+When running against the mock fallback instead (e.g. if the backend is unreachable),
+it's generated at runtime in the browser by a seeded PRNG. See
+[docs/DATA_AI_USAGE.md](docs/DATA_AI_USAGE.md) for full detail on
 data structure, rights, and validation approach, and the note above on what raw
 prompt text the backend does (and does not) ever persist.
 
@@ -241,9 +250,12 @@ details and the target pilot deployment plan.
 Stated plainly, not softened:
 
 - **v0.1, not production-hardened.** The backend, database, and detection engine are
-  real and functioning locally — this is no longer a frontend-only simulation — but
-  nothing here has had a security/production hardening pass. See
-  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full demo-vs-target breakdown.
+  real and functioning — deployed and verified end-to-end (Rust/Axum on Render, real
+  PostgreSQL, real auth, all five dashboard views confirmed pulling live data) — this
+  is no longer a frontend-only simulation. But nothing here has had a security/
+  production hardening pass, and it hasn't been load-tested or exercised under real
+  institutional traffic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full
+  v0.1-vs-target breakdown.
 - **No live AI provider connection.** The "AI Gateway" pipeline stage is a labeled
   no-op (`ai_model_used` is always the literal string documenting that no provider is
   connected) — Lango gates access to an AI provider by design, but v0.1 doesn't
@@ -251,12 +263,14 @@ Stated plainly, not softened:
 - **No live security-event detection.** Prompt-injection/rate-limit/DoS detection is
   not implemented; the Security Events table is seeded with illustrative example rows
   (see `backend/src/bin/seed.rs`), not produced by a live detector.
-- **No login screen.** The dashboard authenticates as a fixed seeded demo account
-  (see [Environment Variables](#environment-variables)) rather than having its own
-  auth UI — fine for a single-reviewer local demo, not how a real multi-user
-  deployment would work.
-- **The deployed Vercel demo still uses mock data.** No backend is hosted alongside
-  it; `NEXT_PUBLIC_USE_MOCK_DATA=true` there is deliberate, not a bug.
+- **No login screen.** The dashboard authenticates as a single fixed seeded demo
+  account (see [Environment Variables](#environment-variables)) rather than having its
+  own auth UI or real multi-user credentials — fine for a judge/reviewer demo, not how
+  a real multi-user deployment would work.
+- **The deployed Vercel demo now calls the live Render backend by default**, not mock
+  data — `NEXT_PUBLIC_USE_MOCK_DATA` is unset on the Vercel deployment. Mock data is
+  only ever the automatic fallback if the backend is unreachable (e.g. mid cold-start
+  on Render's free tier — see [Deployment](#deployment)).
 - **No integration or end-to-end test suite.** Backend detection-engine logic has
   real unit tests (`cargo test`); everything above that (API integration, frontend)
   is verified by manual click-through, logged in

@@ -97,9 +97,11 @@ Office, Legal Affairs) and other institution types.
 - **Trust gap**: asking a regulated institution to route AI traffic through a
   third-party gateway is a significant trust ask; without a credible pilot and audit
   evidence, procurement stalls.
-- **Backend not yet built**: this repo is a frontend demo only — there is real
-  execution risk in building and hardening the actual Rust/Axum backend before any
-  paid pilot can run on live traffic.
+- **Backend not yet pilot-hardened**: the Rust/Axum backend is now real, deployed
+  (Render), and verified end-to-end — this is no longer a frontend-only demo — but
+  there is real execution risk in hardening it (multi-tenant isolation, a live AI
+  provider connection, rate limiting, production security review) before any paid
+  pilot can run on real institutional traffic.
 
 ## Success metrics at 30 / 60 / 90 days
 

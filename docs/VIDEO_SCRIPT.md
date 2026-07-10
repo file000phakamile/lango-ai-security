@@ -57,13 +57,17 @@ onboarded, with success metrics tracked against target.
 
 **[Closing — no specific screen, or hold on Pilot & Sandbox]**
 
-One honest note: this is a frontend demo with synthetic data. There's no live
-backend yet. This shows the concept and the interface — the production system is
-what we're building next.
+One honest note: this is a real, working system — a live Rust backend and a real
+database behind everything you just saw — not a mockup. It's still early-stage: v0.1,
+not load-tested or hardened for real institutional traffic, running on a single demo
+login rather than full multi-user accounts, and with a known mobile-responsiveness
+issue we haven't fixed yet. What you saw is real; what's left is hardening it for a
+pilot.
 
 ---
 
 **Word count:** ~200 words spoken. **Estimated speaking time:** ~80 seconds at
 150 wpm, before accounting for click/wait time — matches the honesty framing
 already used throughout this repo's docs (see [DATA_AI_USAGE.md](DATA_AI_USAGE.md)
-and the README's Known Limitations): nothing here claims the backend is real.
+and the README's Known Limitations): the backend is real and deployed, but this is
+v0.1, not a production-hardened or load-tested system.

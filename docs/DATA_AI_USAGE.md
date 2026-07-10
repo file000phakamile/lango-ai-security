@@ -2,21 +2,36 @@
 
 ## Is the data real or synthetic?
 
-**Synthetic, stated plainly.** Every data point rendered in this demo — audit log
-rows, department flag rates, drift metrics, security events, pilot checklist status —
-is generated programmatically by [`lib/lango/mock-data.ts`](../lib/lango/mock-data.ts)
-using a seeded pseudo-random number generator (`mulberry32`, seed `2026`). No real
-institution, employee, customer, or patient data has been used, collected, or stored
-anywhere in this repository.
+**The content is synthetic; the system producing it is real, stated plainly.** This
+is no longer a purely client-side simulation — a real Rust/Axum backend, deployed on
+Render with a real PostgreSQL database, is live and verified end-to-end. What runs
+through it is still synthetic content: [`backend/src/bin/seed.rs`](../backend/src/bin/seed.rs)
+generates realistic-looking (but fabricated) prompts and feeds them through the
+*actual* detection engine — the same regex rules and name heuristic a real `/api/scan`
+call would use — so the resulting audit-log rows, risk scores, and decisions are real
+detection output, not fabricated numbers, just produced from made-up input text
+rather than real institutional data. No real institution, employee, customer, or
+patient data has been used, collected, or stored anywhere in this repository or its
+deployed instances.
+
+The frontend has a second, separate data path: [`lib/lango/mock-data.ts`](../lib/lango/mock-data.ts)
+generates data entirely client-side with a seeded PRNG (`mulberry32`, seed `2026`),
+with no backend involved at all. This is now the *fallback* path — used automatically
+if the real backend is unreachable (e.g. mid cold-start on Render's free tier) — not
+the primary path. See [`lib/lango/api-client.ts`](../lib/lango/api-client.ts) for
+exactly how that fallback decision is made.
 
 ## Source and rights
 
-Not applicable in the "real dataset" sense — there is no dataset. The mock-data
-generator is original code written for this submission, and the fixed constants it
-uses (fairness figures, the week-9 drift spike, pilot success metrics) are
-illustrative example values chosen to demonstrate the product's monitoring and audit
-features, not measurements from any real deployment. The team holds full rights to
-this code and its output.
+Not applicable in the "real dataset" sense — there is no dataset, real or acquired
+from elsewhere. Both data-generation paths (the backend's `seed.rs` and the frontend's
+`mock-data.ts`) are original code written for this submission. Some values are still
+fixed illustrative constants rather than computed (the security-events feed, since no
+live prompt-injection/rate-limit/DoS detector exists yet — see Known limitations
+below); most others (fairness flag rates, drift PSI/KL, audit log contents) are now
+computed live from whatever's actually in the database at request time, so they will
+vary between deployments/reseeds rather than being pinned to one illustrative number.
+The team holds full rights to this code and its output.
 
 ## Data structure
 
@@ -42,10 +57,14 @@ numbers, full names, medical record numbers, API keys) from leaving an instituti
 AI prompts in the first place. This demo does not collect, store, or transmit any real
 personal data: the "entities detected" shown in the Audit Log are entity *type*
 labels (e.g. `national_id`) attached to synthetic rows, never actual ID numbers or
-names. In the target production system, the same principle holds by design — the
-Redaction Engine's job is to strip sensitive values *before* they reach an AI
-provider or get logged in plaintext; the audit log is built to record that a
-redaction happened, not to store the redacted value itself.
+names. This is real, implemented behaviour today, not just a target-production
+principle: `backend/src/detection/scan.rs` strips matched entities from the prompt
+before anything is logged, and `audit_log.original_prompt_hash` stores a SHA-256 hash
+of the original prompt — never the raw text — with `redacted_prompt` storing only the
+sanitised version. The target production system carries the same principle forward
+unchanged; what's still aspirational there is the AI Gateway actually forwarding the
+sanitised prompt to a live provider, not the redaction-before-logging behaviour
+itself.
 
 ## AI approach category
 
@@ -86,33 +105,49 @@ routinely blocked, driving staff to route around the tool — see Adoption risks
 
 ## How are outputs validated?
 
-Two complementary checks, both visible in this demo's dashboard:
+Two complementary checks, both real and both visible in this demo's dashboard —
+neither is a fixed illustrative figure any more:
 
 - **Fairness validation** (Fairness Audit view): **Disparate Impact Ratio (DIR)** and
-  **Statistical Parity Difference (SPD)** are computed across session language
-  (English, Ndebele, Shona) and department, to check the scanner doesn't flag one
-  group's prompts at a disproportionately different rate than another's. The demo's
-  worked example shows a DIR of 0.67 for Shona vs. English — below the 0.80 threshold
-  — which triggers a mandatory pattern-rule review. The same methodology is applied
-  across departments.
+  **Statistical Parity Difference (SPD)** are computed live, on every request, by
+  `backend/src/routes/fairness.rs` — a real SQL aggregation over actual `audit_log`
+  rows grouped by session language (English, Ndebele, Shona) and department, checking
+  whether the scanner flags one group's prompts at a disproportionately different rate
+  than another's, against the 0.80 DIR threshold. Because it's computed from whatever
+  is actually in the database, the specific numbers shown will vary between deployments
+  and reseeds — they are no longer a single pinned "worked example," they're a live
+  computation over real (if synthetic-content) rows.
 - **Drift validation** (Drift & Security view): **Population Stability Index (PSI)**
-  and **KL-divergence** are tracked weekly against a 0.20 alert threshold, to catch
-  the detection layer's behaviour silently degrading (e.g. a new national ID card
-  format the pattern rules don't recognise). The demo's worked example shows a
-  synthetic week-9 spike to PSI 0.27, tied to a new ID-card format, with rules updated
-  the same week.
+  and **KL-divergence** (`backend/src/detection/drift.rs`, with unit tests) are real
+  statistical math run over weekly entity-type distributions, against a 0.20 alert
+  threshold, to catch the detection layer's behaviour silently degrading (e.g. a new
+  national ID card format the pattern rules don't recognise). What's still simplified:
+  these are computed once at seed time over synthetic weekly distributions, not
+  continuously by a scheduled job against live traffic — see Known limitations below.
 
-In the target production system, both checks would run against real audit-log data on
-a recurring cycle (quarterly for fairness, weekly for drift, matching the cadence
-shown in the demo) rather than the fixed illustrative figures used here.
+In the target production system, drift would additionally run on a real recurring
+schedule against live traffic (rather than being computed once at seed time); fairness
+validation's live-computation approach is already the production-shaped design, just
+not yet running against real institutional volume.
 
 ## Known limitations and failure modes
 
-- **No live detection exists yet** — this demo does not run any actual entity
-  detection; the pipeline and its outputs are illustrative, not functional.
+- **Detection is real, but not scheduled/continuous everywhere.** `/api/scan` runs
+  real detection on every call, and fairness (DIR/SPD) is computed live on every
+  request. Drift (PSI/KL) is the one exception: it's real math, but only computed once
+  at seed time against synthetic weekly distributions, not by a live scheduled job —
+  see docs/ARCHITECTURE.md's Monitoring row.
+- **Name detection is a heuristic, not real NER.** `backend/src/detection/name_heuristic.rs`
+  is a capitalized-word-sequence pattern with a stopword exclusion list — explicitly
+  documented in its own code comment as a simplified stand-in, not production-grade
+  NER. A real transformer-based NER model was considered and deliberately not used in
+  v0.1 (needs a native libtorch/onnxruntime dependency, too heavy for this stage) —
+  see [Questions.md](../Questions.md) for the full reasoning. This heuristic will both
+  miss real names (single-word names, lowercase names, names matching the stopword
+  list) and false-positive on capitalized phrases that aren't names.
 - **Rule/NER-based detection has coverage gaps** — new document or ID formats,
-  regional variations, or entities outside the six defined types
-  (`national_id`, `bank_account`, `phone_number`, `full_name`,
+  regional variations, or entities outside the seven defined types
+  (`national_id`, `bank_account`, `phone_number`, `credit_card`, `full_name`,
   `medical_record_no`, `api_key`) would not be caught until rules are updated — this
   is exactly the failure mode the drift monitor exists to catch, not something the
   design claims to be immune to.
