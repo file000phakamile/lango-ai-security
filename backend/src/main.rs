@@ -1,7 +1,8 @@
 use axum::{
     routing::{get, post},
-    Router,
+    Json, Router,
 };
+use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use axum::http::{HeaderValue, Method};
 use tower_http::cors::CorsLayer;
@@ -60,7 +61,9 @@ async fn main() {
             "/api/command-center/summary",
             get(routes::command_center::get_summary),
         )
-        .route("/healthz", get(|| async { "ok" }))
+        // No auth required — this is what render.yaml's healthCheckPath
+        // (and any external uptime check) hits.
+        .route("/health", get(|| async { Json(json!({"status": "ok"})) }))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(cors);

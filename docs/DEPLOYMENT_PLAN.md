@@ -70,7 +70,7 @@ path for the "review" state a fairness or drift alert triggers.
 
 ## Monitoring
 
-- **Demo**: Render's built-in service health checks (`healthCheckPath: /healthz` in
+- **Demo**: Render's built-in service health checks (`healthCheckPath: /health` in
   `render.yaml`) and dashboard logs/metrics — nothing beyond Render's own free-tier
   tooling; no external uptime or alerting service is wired up.
 - **Target pilot**: the demo's Drift & Security view illustrates the intended shape —

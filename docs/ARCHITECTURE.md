@@ -42,7 +42,7 @@ the target, that gap is stated directly rather than glossed over.
 1. **API endpoints documented** — `backend/src/main.rs` wires up seven real,
    real routes: `POST /api/auth/login`, `POST /api/scan`, `GET /api/audit-log`,
    `GET /api/fairness`, `GET /api/drift`, `GET /api/security-events`,
-   `GET /api/command-center/summary`, plus `GET /healthz`. No OpenAPI/Swagger spec
+   `GET /api/command-center/summary`, plus `GET /health`. No OpenAPI/Swagger spec
    exists yet — route signatures and response shapes are documented in
    `backend/src/models.rs` and this file's README setup section (with a working
    `curl` example) instead.
