@@ -26,11 +26,16 @@ pub async fn scan(
     let original_prompt_hash = hash_prompt(&payload.prompt);
     let response_scan_result = response_scan_result_for(outcome.decision);
 
-    let redacted_prompt_for_storage = if outcome.decision == "redacted_and_forwarded" {
-        Some(outcome.redacted_prompt.clone())
-    } else {
-        None
-    };
+    // Both decisions that actually forward a prompt store the redacted
+    // version — a low-confidence-but-forwarded name match still needs its
+    // redacted text on record for the compliance review this decision
+    // exists to flag.
+    let redacted_prompt_for_storage =
+        if outcome.decision == "redacted_and_forwarded" || outcome.decision == "redacted_low_confidence_review" {
+            Some(outcome.redacted_prompt.clone())
+        } else {
+            None
+        };
 
     let entities_json = serde_json::to_value(&outcome.entities_detected)
         .map_err(|e| AppError::Internal(e.to_string()))?;

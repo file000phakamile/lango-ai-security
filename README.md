@@ -98,10 +98,18 @@ Real, working, non-simulated code — with real limits, documented honestly:
   based NER crate (`rust-bert`/ONNX options) because those need a native
   libtorch/onnxruntime dependency — too heavy for a "runs locally, not
   production-hardened" v0.1. See [Questions.md](Questions.md) for the full reasoning.
-- **Fail-closed risk scoring** (`backend/src/detection/scan.rs`): each match carries a
-  confidence score; if the lowest-confidence match on a prompt is below threshold, the
-  request is blocked (`blocked_low_confidence`) rather than redacted and forwarded —
-  real logic, not a random coin flip like the old mock data used.
+- **Three-tier, entity-type-aware confidence handling** (`backend/src/detection/
+  scan.rs`): each match carries a confidence score. High-confidence matches redact and
+  forward as always (`redacted_and_forwarded`); near-zero-confidence matches and any
+  low-confidence match on a *structured* entity (national ID, bank account, phone
+  number, credit card, medical record number, API key) still fail closed and block
+  (`blocked_low_confidence`) — unchanged. The one deliberate exception: a low-but-real-
+  confidence `full_name` match (the heuristic below has a real false-positive rate on
+  ordinary capitalized phrases) is redacted and forwarded automatically rather than
+  blocked, tagged `redacted_low_confidence_review` so it's queryable separately for
+  async compliance review. Real logic, not a random coin flip like the old mock data
+  used — see docs/SECURITY_PRIVACY.md's Human oversight row for the compliance framing
+  of this tradeoff.
 
 ## Data
 

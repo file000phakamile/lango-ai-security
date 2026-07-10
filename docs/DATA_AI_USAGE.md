@@ -40,8 +40,9 @@ Generated records follow the shapes defined in
 
 - **`AuditLogEntry`** — session id, user id, department, timestamp, entity types
   detected, risk score (0–1), decision (`cleared_no_entities` /
-  `redacted_and_forwarded` / `blocked_low_confidence`), reason string, AI
-  model/connector label, response-scan result.
+  `redacted_and_forwarded` / `redacted_low_confidence_review` /
+  `blocked_low_confidence`), reason string, AI model/connector label, response-scan
+  result.
 - **`ParityEntry`** — group label (language or department) + flag rate, used for the
   fairness bar charts.
 - **`DriftWeek`** — week label, PSI, KL-divergence, alert flag, used for the drift
@@ -93,10 +94,20 @@ the prompt:
 - **`cleared_no_entities`** — no sensitive entity was present, and none was flagged.
 - **`redacted_and_forwarded`** — a sensitive entity was present, correctly detected,
   replaced with a placeholder token, and only the sanitised version was sent onward.
+- **`redacted_low_confidence_review`** — a `full_name` match landed in the 0.30-0.60
+  confidence band: real enough to redact, not confident enough to treat the same as a
+  routine detection. Redacted and forwarded automatically, same as
+  `redacted_and_forwarded`, but tagged distinctly so it surfaces separately for async
+  compliance review. This is a deliberate, narrow exception scoped to names only — see
+  Known limitations below and docs/SECURITY_PRIVACY.md's Human oversight row.
 - **`blocked_low_confidence`** — the scanner detected something *likely* sensitive but
   couldn't classify it with enough confidence to safely redact and forward, so it
-  fails closed (blocks) rather than guessing. This is intentional: an uncertain
-  detection should stop the request, not risk letting sensitive data through.
+  fails closed (blocks) rather than guessing. This applies to near-zero-confidence
+  matches of any type, and to low-confidence matches on any *structured* entity type
+  (national ID, bank account, phone number, credit card, medical record number, API
+  key) — for those, an uncertain detection should stop the request, not risk letting
+  sensitive data through, since a partial/uncertain match on a structured pattern is
+  more likely to be a real entity in an unexpected format than a false positive.
 
 A **wrong** output is a false negative (sensitive data missed and forwarded raw — the
 costly failure mode) or an excessive false positive rate (legitimate content
@@ -144,7 +155,12 @@ not yet running against real institutional volume.
   v0.1 (needs a native libtorch/onnxruntime dependency, too heavy for this stage) —
   see [Questions.md](../Questions.md) for the full reasoning. This heuristic will both
   miss real names (single-word names, lowercase names, names matching the stopword
-  list) and false-positive on capitalized phrases that aren't names.
+  list) and false-positive on capitalized phrases that aren't names — which is exactly
+  why a low-confidence `full_name` match no longer blocks outright (see
+  `redacted_low_confidence_review` above): blocking on every borderline name match was
+  costing real workflow friction for very little actual safety benefit, since a
+  wrongly-redacted ordinary word is a much smaller harm than a wrongly-redacted
+  national ID or account number.
 - **Rule/NER-based detection has coverage gaps** — new document or ID formats,
   regional variations, or entities outside the seven defined types
   (`national_id`, `bank_account`, `phone_number`, `credit_card`, `full_name`,
@@ -160,11 +176,19 @@ not yet running against real institutional volume.
 
 ## Human oversight for high-risk decisions
 
-By design, low-confidence detections **fail closed** — the request is blocked rather
-than allowed through on an uncertain judgement call (`blocked_low_confidence` in the
-Audit Log). Fairness threshold failures (DIR below 0.80) automatically open a
-mandatory pattern-rule review rather than self-correcting silently. Drift alerts
-crossing the PSI/KL threshold likewise require a human review-and-update cycle on the
-detection rules, not an automated rule change. In all three cases, the system is
-designed to surface uncertainty and disparity to a human reviewer rather than resolve
-them autonomously — appropriate given the institutional and regulatory stakes involved.
+By design, near-zero-confidence detections and any low-confidence match on a
+structured entity type **fail closed** — the request is blocked rather than allowed
+through on an uncertain judgement call (`blocked_low_confidence` in the Audit Log).
+The one deliberate exception is a low-but-real-confidence `full_name` match: rather
+than blocking, it's redacted and forwarded automatically and tagged
+`redacted_low_confidence_review`, so a human reviews it asynchronously from the audit
+log instead of the requester being stopped outright — a reasoned tradeoff given
+`name_heuristic.rs`'s real false-positive rate on ordinary capitalized phrases, not a
+loosening of fail-closed for the cases where it matters most (system failure,
+near-zero confidence, every structured entity type). Fairness threshold failures (DIR
+below 0.80) automatically open a mandatory pattern-rule review rather than
+self-correcting silently. Drift alerts crossing the PSI/KL threshold likewise require
+a human review-and-update cycle on the detection rules, not an automated rule change.
+In all three cases, the system is designed to surface uncertainty and disparity to a
+human reviewer rather than resolve them autonomously — appropriate given the
+institutional and regulatory stakes involved.

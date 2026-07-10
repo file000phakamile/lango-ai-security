@@ -119,6 +119,23 @@ const LangoSiteAdapter = (() => {
         break;
       }
 
+      case "redacted_low_confidence_review": {
+        // Handled the same as redacted_and_forwarded — the prompt was
+        // genuinely redacted and is sent, not held back — but with a
+        // visually distinct (amber) banner so the user can tell this
+        // happened, even though nothing blocked them. No action is required
+        // from the user here; this auto-dismisses like a normal redaction,
+        // unlike the blocked case below.
+        adapter.writeText(composer, result.redacted_prompt);
+        showBanner(
+          "Lango: redacted (low-confidence name match, flagged for review)",
+          "reviewFlagged",
+          { autoDismiss: true },
+        );
+        setTimeout(() => resend(adapter, composer), 60);
+        break;
+      }
+
       case "blocked_low_confidence":
         // Do NOT resend, do NOT auto-retry. The user must edit the prompt
         // themselves and submit again.

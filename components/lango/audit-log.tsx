@@ -25,6 +25,7 @@ export function AuditLog({ log }: { log: AuditLogEntry[] }) {
         >
           <option value="all">all decisions</option>
           <option value="redacted_and_forwarded">redacted_and_forwarded</option>
+          <option value="redacted_low_confidence_review">Flagged for review (redacted_low_confidence_review)</option>
           <option value="blocked_low_confidence">blocked_low_confidence</option>
           <option value="cleared_no_entities">cleared_no_entities</option>
         </select>

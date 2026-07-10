@@ -7,10 +7,11 @@ use crate::{
     state::AppState,
 };
 
-const VALID_DECISIONS: [&str; 3] = [
+const VALID_DECISIONS: [&str; 4] = [
     "cleared_no_entities",
     "blocked_low_confidence",
     "redacted_and_forwarded",
+    "redacted_low_confidence_review",
 ];
 
 pub async fn get_audit_log(

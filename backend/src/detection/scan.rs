@@ -23,6 +23,10 @@ pub fn response_scan_result_for(decision: &str) -> &'static str {
     if decision == "blocked_low_confidence" {
         "not sent - request blocked pre-gateway"
     } else {
+        // Covers both "redacted_and_forwarded" and
+        // "redacted_low_confidence_review" — both actually forward a
+        // (redacted) prompt, so neither has anything to scan a response
+        // from any more than the other does in v0.1.
         "not applicable - no live AI provider connected in v0.1, nothing was sent to scan"
     }
 }
@@ -35,12 +39,44 @@ struct Match {
     confidence: f32,
 }
 
-/// Below this confidence, we don't trust ourselves enough to redact and
-/// forward — the request fails closed (blocked) instead. This is the same
-/// "if detection confidence is low, block rather than forward" principle
-/// stated in the proposal, now implemented as real, non-random logic rather
-/// than the mock data's `rand() < 0.3` coin flip.
+/// Below this confidence, we don't trust a match enough to redact-and-forward
+/// it without qualification. What happens next depends on entity type — see
+/// `NAME_LOW_CONFIDENCE_FLOOR` below and the three-tier design note above
+/// `scan_prompt`. This is the same "if detection confidence is low, block
+/// rather than forward" principle stated in the proposal, now implemented as
+/// real, non-random logic rather than the mock data's `rand() < 0.3` coin
+/// flip — refined below into three tiers rather than a single cutoff, based
+/// on real testing showing the single-cutoff version was overly blunt for
+/// names specifically (see Questions.md).
 const CONFIDENCE_THRESHOLD: f32 = 0.6;
+
+/// Below this, even a `full_name` match is untrusted enough to block, the
+/// same as any structured entity below `CONFIDENCE_THRESHOLD`. Between this
+/// floor and `CONFIDENCE_THRESHOLD` (0.30-0.60) is a deliberate middle band
+/// that exists ONLY for `full_name` — real testing showed
+/// `name_heuristic.rs`'s false-positive rate on ordinary capitalized phrases
+/// (see its own doc comment) meant blocking the entire request on every
+/// borderline name match was costing real workflow friction for very little
+/// actual safety benefit, since a wrongly-redacted ordinary word is a much
+/// smaller harm than a wrongly-redacted national ID or account number. So in
+/// that middle band, a name match is redacted and forwarded automatically —
+/// not blocked — but the decision is tagged `redacted_low_confidence_review`
+/// (distinct from ordinary `redacted_and_forwarded`) precisely so a human can
+/// audit these later. This exception is intentionally narrow: it does NOT
+/// extend to any structured entity type (`national_id`, `bank_account`,
+/// `phone_number`, `credit_card`, `medical_record_no`, `api_key`) — an
+/// uncertain match on a structured pattern is more likely to be a real
+/// entity in an unexpected format than a false positive the way an uncertain
+/// name match usually is, so those keep blocking below
+/// `CONFIDENCE_THRESHOLD` with no middle band, unchanged from before this
+/// change. See docs/SECURITY_PRIVACY.md for the compliance framing of this
+/// tradeoff and Questions.md for the full reasoning behind the 0.30 floor
+/// specifically (chosen as roughly half of `CONFIDENCE_THRESHOLD`; the name
+/// heuristic in this codebase today only ever emits a single fixed
+/// confidence of 0.55, comfortably inside this band, so this floor is
+/// currently more a statement of intent for if/when that heuristic gains
+/// real confidence gradation than something reachable today).
+const NAME_LOW_CONFIDENCE_FLOOR: f32 = 0.30;
 
 /// Per-entity-type severity weight, used to build the 0-1 risk score.
 /// Reflects roughly how damaging exposure of that entity type is — a
@@ -131,11 +167,6 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
         };
     }
 
-    let min_confidence = matches
-        .iter()
-        .map(|m| m.confidence)
-        .fold(f32::INFINITY, f32::min);
-
     let risk_score: f32 = matches
         .iter()
         .map(|m| severity(m.entity_type))
@@ -144,38 +175,78 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
 
     let entities_detected: Vec<String> = matches.iter().map(|m| m.entity_type.to_string()).collect();
 
-    if min_confidence < CONFIDENCE_THRESHOLD {
+    // Three-tier, entity-type-aware confidence handling. Structured entities
+    // (anything that isn't `full_name`) and `full_name` are judged
+    // separately, then combined with structured entities taking priority —
+    // a low-confidence structured match blocks the whole request regardless
+    // of how confident any name match in the same prompt is.
+    let min_structured_confidence = matches
+        .iter()
+        .filter(|m| m.entity_type != "full_name")
+        .map(|m| m.confidence)
+        .fold(f32::INFINITY, f32::min);
+    let min_name_confidence = matches
+        .iter()
+        .filter(|m| m.entity_type == "full_name")
+        .map(|m| m.confidence)
+        .fold(f32::INFINITY, f32::min);
+
+    // Tier 3a: any structured entity below CONFIDENCE_THRESHOLD blocks,
+    // unconditionally — no middle band for these types (see
+    // NAME_LOW_CONFIDENCE_FLOOR's doc comment for why).
+    if min_structured_confidence < CONFIDENCE_THRESHOLD {
         let low_confidence_types: Vec<&str> = matches
             .iter()
-            .filter(|m| m.confidence < CONFIDENCE_THRESHOLD)
+            .filter(|m| m.entity_type != "full_name" && m.confidence < CONFIDENCE_THRESHOLD)
             .map(|m| m.entity_type)
             .collect();
+        return blocked_outcome(
+            entities_detected,
+            risk_score,
+            prompt,
+            min_structured_confidence,
+            CONFIDENCE_THRESHOLD,
+            &low_confidence_types,
+        );
+    }
+
+    // Tier 3b: a full_name match too unreliable even for the relaxed
+    // tier-2 handling below.
+    if min_name_confidence < NAME_LOW_CONFIDENCE_FLOOR {
+        return blocked_outcome(
+            entities_detected,
+            risk_score,
+            prompt,
+            min_name_confidence,
+            NAME_LOW_CONFIDENCE_FLOOR,
+            &["full_name"],
+        );
+    }
+
+    // Everything from here on forwards a redacted prompt — the redaction
+    // step itself is identical whether the result ends up
+    // `redacted_and_forwarded` or `redacted_low_confidence_review`; only the
+    // decision label and reason_string differ.
+    let redacted = redact(prompt, &matches);
+
+    // Tier 2: a real but low-confidence name match (0.30-0.60), and nothing
+    // structured is below threshold (tier 3a already returned above if it
+    // were). Redact and forward anyway rather than blocking, flagged
+    // distinctly for async compliance review — see NAME_LOW_CONFIDENCE_FLOOR.
+    if min_name_confidence < CONFIDENCE_THRESHOLD {
         return ScanOutcome {
             entities_detected,
             risk_score,
-            // The original, unredacted prompt is never forwarded when we
-            // fail closed — nothing is sent anywhere.
-            redacted_prompt: prompt.to_string(),
-            decision: "blocked_low_confidence",
+            redacted_prompt: redacted,
+            decision: "redacted_low_confidence_review",
             reason_string: format!(
-                "Scanner confidence below threshold ({:.2} < {:.2}) on detected {}. Fail-closed triggered.",
-                min_confidence,
-                CONFIDENCE_THRESHOLD,
-                low_confidence_types.join(", ")
+                "Low-confidence name match ({:.2}) redacted automatically - flagged for compliance review",
+                min_name_confidence
             ),
         };
     }
 
-    // Redact highest-offset matches first so earlier byte offsets in the
-    // string stay valid as we splice replacement tokens in.
-    let mut redacted = prompt.to_string();
-    let mut sorted_desc = matches.iter().collect::<Vec<_>>();
-    sorted_desc.sort_by_key(|m| std::cmp::Reverse(m.start));
-    for m in sorted_desc {
-        let placeholder = format!("[REDACTED:{}]", m.entity_type.to_uppercase());
-        redacted.replace_range(m.start..m.end, &placeholder);
-    }
-
+    // Tier 1: everything trusted.
     ScanOutcome {
         entities_detected: entities_detected.clone(),
         risk_score,
@@ -186,6 +257,45 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
             entities_detected.join(", ")
         ),
     }
+}
+
+/// Builds a `blocked_low_confidence` outcome. Shared by both blocking tiers
+/// (a low-confidence structured entity, or a near-zero-confidence name) so
+/// the fail-closed behavior — the original, unredacted prompt is never
+/// forwarded — can't drift between the two call sites.
+fn blocked_outcome(
+    entities_detected: Vec<String>,
+    risk_score: f32,
+    prompt: &str,
+    min_confidence: f32,
+    threshold: f32,
+    low_confidence_types: &[&str],
+) -> ScanOutcome {
+    ScanOutcome {
+        entities_detected,
+        risk_score,
+        redacted_prompt: prompt.to_string(),
+        decision: "blocked_low_confidence",
+        reason_string: format!(
+            "Scanner confidence below threshold ({:.2} < {:.2}) on detected {}. Fail-closed triggered.",
+            min_confidence,
+            threshold,
+            low_confidence_types.join(", ")
+        ),
+    }
+}
+
+/// Redacts highest-offset matches first so earlier byte offsets in the
+/// string stay valid as replacement tokens are spliced in.
+fn redact(prompt: &str, matches: &[Match]) -> String {
+    let mut redacted = prompt.to_string();
+    let mut sorted_desc = matches.iter().collect::<Vec<_>>();
+    sorted_desc.sort_by_key(|m| std::cmp::Reverse(m.start));
+    for m in sorted_desc {
+        let placeholder = format!("[REDACTED:{}]", m.entity_type.to_uppercase());
+        redacted.replace_range(m.start..m.end, &placeholder);
+    }
+    redacted
 }
 
 fn ranges_overlap(a_start: usize, a_end: usize, b_start: usize, b_end: usize) -> bool {
@@ -238,5 +348,65 @@ mod tests {
         // generic low-confidence api_key fallback and should block, not redact.
         let outcome = scan_prompt("token: aZ9xK2mQ7pL4vN8tR3wY6bC1dF5gH0jS2u");
         assert_eq!(outcome.decision, "blocked_low_confidence");
+    }
+
+    // --- Three-tier confidence handling (see NAME_LOW_CONFIDENCE_FLOOR's
+    // doc comment above for the full reasoning) ---------------------------
+
+    #[test]
+    fn low_confidence_structured_entity_still_blocks() {
+        // Uses bank_account, not national_id: national_id's regex rule is
+        // fixed at confidence 0.85 (see rules.rs), so there is no prompt
+        // that naturally produces a "low-confidence national_id" match to
+        // test against without artificially fabricating one. bank_account
+        // is the structured entity type that IS naturally low-confidence
+        // (0.5, below CONFIDENCE_THRESHOLD) in this codebase's real rule
+        // set, so it's used here to prove the same guarantee: a low-
+        // confidence match on a STRUCTURED entity type blocks unconditionally,
+        // with no tier-2 leniency the way full_name gets — unchanged by this
+        // three-tier change.
+        let outcome = scan_prompt("Please refund via account 9988776655443 once approved.");
+        assert_eq!(outcome.decision, "blocked_low_confidence");
+        assert!(outcome.entities_detected.contains(&"bank_account".to_string()));
+        // Fail-closed: the original prompt must not have been redacted or
+        // forwarded.
+        assert!(outcome.redacted_prompt.contains("9988776655443"));
+    }
+
+    #[test]
+    fn low_confidence_full_name_redacts_with_review_flag_instead_of_blocking() {
+        // "Dear" is in name_heuristic.rs's stopword list and gets trimmed,
+        // leaving "John Moyo" as the sole match, at the heuristic's fixed
+        // 0.55 confidence — squarely inside the tier-2 band (0.30-0.60).
+        let outcome = scan_prompt("Dear John Moyo, please review the attached document.");
+        assert_eq!(outcome.decision, "redacted_low_confidence_review");
+        assert!(outcome.entities_detected.contains(&"full_name".to_string()));
+        assert!(!outcome.redacted_prompt.contains("John Moyo"));
+        assert!(outcome.redacted_prompt.contains("[REDACTED:FULL_NAME]"));
+        assert!(outcome.reason_string.contains("0.55"));
+        assert!(outcome.reason_string.to_lowercase().contains("review"));
+    }
+
+    #[test]
+    fn high_confidence_structured_entities_with_low_confidence_name_still_reviews_not_blocks() {
+        // Regression lock for the exact behavior change this three-tier
+        // model exists for: before this change, this prompt's incidental
+        // low-confidence name match dragged the ENTIRE request down to
+        // blocked_low_confidence, even though the national_id and
+        // phone_number matches were both high-confidence. Structured-entity
+        // confidence must still gate the request (tier 3a checked first),
+        // but a fully-trusted structured match must not itself be blocked
+        // just because a name elsewhere in the same prompt is only
+        // tier-2-confident.
+        let outcome =
+            scan_prompt("Please verify national ID 63-123456A23 for John Moyo, phone 0771234567.");
+        assert_eq!(outcome.decision, "redacted_low_confidence_review");
+        assert!(outcome.entities_detected.contains(&"national_id".to_string()));
+        assert!(outcome.entities_detected.contains(&"phone_number".to_string()));
+        assert!(outcome.entities_detected.contains(&"full_name".to_string()));
+        // Everything detected gets redacted, not just the low-confidence part.
+        assert!(!outcome.redacted_prompt.contains("63-123456A23"));
+        assert!(!outcome.redacted_prompt.contains("0771234567"));
+        assert!(!outcome.redacted_prompt.contains("John Moyo"));
     }
 }

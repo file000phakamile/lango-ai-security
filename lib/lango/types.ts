@@ -19,7 +19,8 @@ export type EntityType =
 export type Decision =
   | "cleared_no_entities"
   | "blocked_low_confidence"
-  | "redacted_and_forwarded";
+  | "redacted_and_forwarded"
+  | "redacted_low_confidence_review";
 
 export interface AuditLogEntry {
   id: string;

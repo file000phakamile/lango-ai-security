@@ -66,6 +66,16 @@ export function generateAuditLog(count = 46): AuditLogEntry[] {
       decision = "blocked_low_confidence";
       reason = "Scanner confidence below threshold on detected entity. Fail-closed triggered.";
       scan = "not sent - request blocked pre-gateway";
+    } else if (entities.includes("full_name") && rand() < 0.4) {
+      // Mirrors the real backend's three-tier confidence handling
+      // (backend/src/detection/scan.rs): a low-but-real-confidence name
+      // match is redacted and forwarded automatically, not blocked, but
+      // flagged distinctly for compliance review — this branch exists so
+      // the mock-data fallback path (used when the real backend is
+      // unreachable) can still demonstrate this decision type.
+      decision = "redacted_low_confidence_review";
+      reason = "Low-confidence name match (0.55) redacted automatically - flagged for compliance review";
+      scan = "not applicable - no live AI provider connected in v0.1, nothing was sent to scan";
     } else {
       decision = "redacted_and_forwarded";
       reason = `Blocked raw prompt: ${entities.join(", ")} detected, replaced with placeholder tokens.`;

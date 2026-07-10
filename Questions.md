@@ -421,3 +421,22 @@ against today's actual markup. `writeText` handles both element types defensivel
 exactly this reason, with the `contenteditable` path explicitly flagged in its own
 code comment as the less reliable of the two (it bypasses ProseMirror's transaction
 system by setting `.textContent` directly).
+
+## 15. Three-tier confidence handling — KPI strip and proposal-PDF checks
+
+**Command Center KPI strip left unchanged, on purpose.** Considered adding a count of
+open `redacted_low_confidence_review` entries to the KPI strip (`components/lango/
+command-center.tsx`), per the task's suggestion. Decided against it: the existing
+"Active monitoring alerts" KPI (`summary.activeAlerts`) is specifically drift-PSI-
+breach-count plus fairness-DIR-breach-count (`backend/src/routes/command_center.rs`'s
+`drift_alerts + fairness_alerts`) — a different kind of signal (systemic monitoring
+breach) from a per-request compliance-review queue. Folding a review-queue count into
+that KPI would conflate the two; adding a fifth KPI to the fixed 4-column grid, or a
+new backend query/field, felt like more surface area than this task asked for. The
+`redacted_low_confidence_review` count is fully visible today via the Audit Log's new
+"Flagged for review" filter — that's the intended discovery path for now. Revisit if
+a dedicated review-queue KPI becomes a real product ask.
+
+**No proposal PDF found in this repo**, consistent with item 8 above — searched again
+(`**/*.pdf`, repo root) before touching any documentation for this task, per the
+instruction not to edit that document if present. None exists here to leave alone.

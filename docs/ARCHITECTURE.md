@@ -67,9 +67,12 @@ the target, that gap is stated directly rather than glossed over.
    prompts over 20,000 characters with `400 BAD_REQUEST` before touching the
    detection engine. The Prompt Scanner stage *is* the input-validation layer for
    sensitive content — every prompt is scanned for sensitive entities and assigned a
-   risk score; low-confidence detections fail closed (`blocked_low_confidence`)
-   rather than silently passing through — real logic in `detection::scan`, with unit
-   tests.
+   risk score. Near-zero-confidence detections and any low-confidence match on a
+   structured entity type still fail closed (`blocked_low_confidence`) rather than
+   silently passing through; a low-but-real-confidence `full_name` match instead
+   redacts and forwards automatically, flagged as `redacted_low_confidence_review` for
+   async compliance review (see docs/SECURITY_PRIVACY.md's Human oversight row) — real
+   three-tier logic in `detection::scan`, with unit tests.
 5. **Database schema provided** — Real: six PostgreSQL migrations in
    `backend/migrations/` (`users`, `sessions`, `audit_log`, `detection_rules`,
    `security_events`, `drift_snapshots`), field names matched deliberately to
@@ -106,6 +109,7 @@ the target, that gap is stated directly rather than glossed over.
 12. **Audit trail described** — This is the product's core function, and it's real:
     every `/api/scan` call writes one `audit_log` row — user, timestamp, department,
     entities detected, risk score, decision (`cleared_no_entities` /
-    `redacted_and_forwarded` / `blocked_low_confidence`), a human-readable reason
-    string, the AI model used (a literal "not connected" string in v0.1), and the
-    response-scan result. Raw prompt text is never stored, only a SHA-256 hash.
+    `redacted_and_forwarded` / `redacted_low_confidence_review` /
+    `blocked_low_confidence`), a human-readable reason string, the AI model used (a
+    literal "not connected" string in v0.1), and the response-scan result. Raw prompt
+    text is never stored, only a SHA-256 hash.

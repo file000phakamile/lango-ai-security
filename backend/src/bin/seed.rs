@@ -286,11 +286,14 @@ async fn main() {
         let outcome = scan_prompt(prompt);
         let original_prompt_hash = hash_prompt(prompt);
         let response_scan_result = response_scan_result_for(outcome.decision);
-        let redacted_prompt_for_storage = if outcome.decision == "redacted_and_forwarded" {
-            Some(outcome.redacted_prompt.clone())
-        } else {
-            None
-        };
+        // Mirrors routes/scan.rs — both decisions that actually forward a
+        // prompt store the redacted version.
+        let redacted_prompt_for_storage =
+            if outcome.decision == "redacted_and_forwarded" || outcome.decision == "redacted_low_confidence_review" {
+                Some(outcome.redacted_prompt.clone())
+            } else {
+                None
+            };
         let entities_json = serde_json::to_value(&outcome.entities_detected).expect("serialize entities");
 
         let gap_minutes = rng.gen_range(14..54);
