@@ -300,6 +300,20 @@ slim `debian:bookworm-slim` runtime stage matching the builder's glibc), with a
 `.dockerignore` added to keep the local (Windows-built, Linux-incompatible)
 `target/` directory out of the build context — a real bug this review caught, since
 without it `COPY . .` would have pulled in binaries that don't match the container's
-platform. Not run end-to-end; recommend a real `docker build` (or letting Render's
-own build serve as the first real test) before relying on it for anything beyond
-this review.
+platform. Not run end-to-end locally; Render's own build will be the first real test
+of the Dockerfile itself (Blueprint creation triggers it) — `blueprints validate`
+below only checks the YAML, not that the Dockerfile actually builds.
+
+**Update: live `render blueprints validate` did run, and passed.** You rotated the
+key and exported it — though the export landed in the conversation transcript in
+plaintext a second time as a side effect of a bash/PowerShell syntax mismatch (the
+`!` prefix runs in *this* bash session, and `$env:VAR=...` is PowerShell-only syntax
+bash doesn't understand; the correct form here was `export VAR=value`). Flagged that
+again and recommend rotating this key too once you're done, same as the first one.
+With it working: `render whoami` confirmed the authenticated account, `render
+workspaces` found exactly one workspace (`tea-d989p1mq1p3s7382kv0g`, "My
+Workspace"), and `render blueprints validate render.yaml -o json` returned
+`"valid": true` with a plan to create exactly the two resources this file defines
+(`lango-db`, `lango-backend`) — no conflicts against anything already in your
+account. The field-name review below turned out to be correct; nothing needed
+fixing after the live check.
