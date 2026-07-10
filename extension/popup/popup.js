@@ -1,27 +1,89 @@
-document.getElementById("optionsBtn").addEventListener("click", () => {
-  chrome.runtime.openOptionsPage();
-});
+const DEFAULT_API_BASE_URL = "https://lango-backend-qwkx.onrender.com";
 
-chrome.runtime.sendMessage({ type: "LANGO_GET_STATUS" }, (status) => {
-  const dot = document.getElementById("statusDot");
-  const text = document.getElementById("statusText");
-  const count = document.getElementById("scanCount");
+const statusDot = document.getElementById("statusDot");
+const statusText = document.getElementById("statusText");
+const loggedOutView = document.getElementById("loggedOutView");
+const loggedInView = document.getElementById("loggedInView");
+const scanCountEl = document.getElementById("scanCount");
+const emailInput = document.getElementById("email");
+const passwordInput = document.getElementById("password");
+const loginMessage = document.getElementById("loginMessage");
 
+function setLoginMessage(text, kind) {
+  loginMessage.textContent = text || "";
+  loginMessage.className = kind || "";
+}
+
+function render(status) {
   if (!status) {
-    text.textContent = "Extension error";
+    statusText.textContent = "Extension error";
     return;
   }
 
+  scanCountEl.textContent = status.scanCount;
+
   if (status.loggedIn) {
-    dot.classList.remove("off");
-    dot.classList.add("on");
-    const host = status.apiBaseUrl.replace(/^https?:\/\//, "");
-    text.textContent = status.user ? `${status.user.email} — ${host}` : `Connected — ${host}`;
+    statusDot.classList.remove("off");
+    statusDot.classList.add("on");
+    statusText.textContent = status.user ? `Connected as ${status.user.email}` : "Connected";
+    loggedInView.classList.remove("hidden");
+    loggedOutView.classList.add("hidden");
   } else {
-    dot.classList.remove("on");
-    dot.classList.add("off");
-    text.textContent = "Not logged in";
+    statusDot.classList.remove("on");
+    statusDot.classList.add("off");
+    statusText.textContent = "Not logged in";
+    loggedInView.classList.add("hidden");
+    loggedOutView.classList.remove("hidden");
+  }
+}
+
+function refreshStatus() {
+  chrome.runtime.sendMessage({ type: "LANGO_GET_STATUS" }, render);
+}
+
+refreshStatus();
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+
+  if (!email || !password) {
+    setLoginMessage("Email and password are both required.", "error");
+    return;
   }
 
-  count.textContent = status.scanCount;
+  setLoginMessage("Logging in…", "");
+  // Uses whatever API base URL is currently stored (the live Render backend
+  // by default), so the popup's login form works with zero extra clicks for
+  // the common case. Overriding it for local dev is one click away via
+  // "Advanced" below, not required for normal use.
+  const stored = await chrome.storage.local.get(["apiBaseUrl"]);
+  const apiBaseUrl = stored.apiBaseUrl || DEFAULT_API_BASE_URL;
+
+  chrome.runtime.sendMessage({ type: "LANGO_LOGIN", email, password, apiBaseUrl }, (result) => {
+    if (result && result.ok) {
+      passwordInput.value = "";
+      setLoginMessage("", "");
+      refreshStatus();
+    } else {
+      setLoginMessage((result && result.message) || "Login failed.", "error");
+    }
+  });
+});
+
+document.getElementById("logoutBtn").addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: "LANGO_LOGOUT" }, () => {
+    refreshStatus();
+  });
+});
+
+document.getElementById("advancedLink").addEventListener("click", () => {
+  chrome.runtime.openOptionsPage();
+});
+
+// Enter-to-submit in either field, same as any normal login form.
+[emailInput, passwordInput].forEach((el) => {
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("loginBtn").click();
+  });
 });

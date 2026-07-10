@@ -6,7 +6,7 @@
     <style>
       body {
         font-family: system-ui, -apple-system, sans-serif;
-        width: 260px;
+        width: 280px;
         margin: 0;
         padding: 16px;
         background: #f6f7f8;
@@ -29,6 +29,7 @@
         gap: 6px;
         font-size: 12px;
         margin-bottom: 12px;
+        word-break: break-word;
       }
       .dot {
         width: 8px;
@@ -55,6 +56,21 @@
         font-weight: 600;
         margin: 0 0 14px;
       }
+      label {
+        display: block;
+        font-size: 11px;
+        color: #5b6270;
+        margin: 8px 0 3px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 7px 8px;
+        border: 1px solid #e1e4e8;
+        border-radius: 6px;
+        font-size: 12px;
+        font-family: inherit;
+      }
       button,
       a.button {
         display: block;
@@ -72,16 +88,52 @@
         margin-bottom: 8px;
         font-family: inherit;
       }
+      button.primary,
       a.button.primary {
         background: #8a6323;
         color: #ffffff;
         border-color: #8a6323;
+        font-weight: 600;
+      }
+      button.danger {
+        background: #ffffff;
+        color: #a83a3a;
+        border-color: #a83a3a55;
+      }
+      #loginMessage {
+        font-size: 11px;
+        min-height: 14px;
+        margin: 4px 0 8px;
+      }
+      #loginMessage.error {
+        color: #a83a3a;
+      }
+      .banner {
+        background: #a83a3a1a;
+        border: 1px solid #a83a3a55;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+        margin-bottom: 10px;
+        line-height: 1.4;
+      }
+      .advanced-link {
+        font-size: 11px;
+        color: #8a93a1;
+        text-align: center;
+        display: block;
+        margin-top: 4px;
+        cursor: pointer;
+        text-decoration: underline;
       }
       .note {
         font-size: 10px;
         color: #8a93a1;
-        margin-top: 8px;
+        margin-top: 10px;
         line-height: 1.4;
+      }
+      .hidden {
+        display: none !important;
       }
     </style>
   </head>
@@ -91,12 +143,29 @@
       <span id="statusDot" class="dot off"></span>
       <span id="statusText">Checking…</span>
     </div>
-    <div class="row">Prompts scanned this session</div>
-    <div class="count" id="scanCount">0</div>
-    <button id="optionsBtn">Open options / log in</button>
-    <a class="button primary" href="https://lango-app-dusky.vercel.app" target="_blank" rel="noopener">
-      Open live dashboard
-    </a>
+
+    <!-- Shown when NOT logged in: login is right here, no menu-hunting required. -->
+    <div id="loggedOutView" class="hidden">
+      <div class="banner">You're not logged in — log in below to enable prompt scanning on chatgpt.com.</div>
+      <label for="email">Email</label>
+      <input id="email" type="email" placeholder="compliance@lango.demo" autocomplete="username" />
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" />
+      <div id="loginMessage"></div>
+      <button id="loginBtn" class="primary">Log in to Lango</button>
+      <span id="advancedLink" class="advanced-link">Advanced: change API URL (local dev)</span>
+    </div>
+
+    <!-- Shown when logged in. -->
+    <div id="loggedInView" class="hidden">
+      <div class="row">Prompts scanned this session</div>
+      <div class="count" id="scanCount">0</div>
+      <a class="button primary" href="https://lango-app-dusky.vercel.app" target="_blank" rel="noopener">
+        Open live dashboard
+      </a>
+      <button id="logoutBtn" class="danger">Log out</button>
+    </div>
+
     <p class="note">v0.1 — chatgpt.com only. See extension/README.md for scope and known limitations.</p>
     <script src="popup.js"></script>
   </body>

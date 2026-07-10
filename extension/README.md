@@ -61,12 +61,17 @@ extension/
                             logic) — site-independent
     chatgpt-adapter.js       chatgpt.com-specific DOM hooks — see Known fragility
   popup/
-    popup.html / popup.js   Extension icon popup: connection status, session scan
-                            count, link to the live dashboard
+    popup.html / popup.js   Extension icon popup: THIS is where login happens —
+                            an embedded login form shows automatically when not
+                            logged in, connection status ("Connected as
+                            you@example.com" with a green dot) when logged in,
+                            session scan count, link to the live dashboard
   options/
-    options.html / options.js   One-time login form against the real backend's
-                            POST /api/auth/login; stores the JWT in
-                            chrome.storage.local; lets you override the API base URL
+    options.html / options.js   Secondary/advanced page — same login form,
+                            plus the API base URL override (for local dev).
+                            Reachable from the popup's "Advanced" link, not
+                            required for normal use since the popup itself
+                            handles login
   icons/                   Placeholder gold-shield icons (16/48/128px) — functional,
                             not designed, per this pass's explicit scope
 ```
@@ -82,12 +87,17 @@ back — this keeps every network/auth failure mode centralized in one file
 1. Open `chrome://extensions` (or `edge://extensions` on Edge).
 2. Enable **Developer mode** (top-right toggle).
 3. Click **Load unpacked**, and select this `extension/` directory.
-4. Click the Lango icon in your toolbar, then **Open options / log in**.
-5. Log in with a real Lango account (e.g. the seeded demo account —
-   `compliance@lango.demo` / `LangoDemo123!`, see the main repo README) against the
-   live backend (`https://lango-backend-qwkx.onrender.com`, prefilled by default), or
-   override the API base URL to `http://localhost:8080` if you're running the backend
-   locally (see the main README's Setup section).
+4. Click the Lango icon in your toolbar. Since you're not logged in yet, the popup
+   itself shows a login form directly — no menu-hunting required. Log in with a real
+   Lango account (e.g. the seeded demo account — `compliance@lango.demo` /
+   `LangoDemo123!`, see the main repo README) — the popup defaults to the live backend
+   (`https://lango-backend-qwkx.onrender.com`). To test against a locally-run backend
+   instead, click **Advanced: change API URL** at the bottom of the login form, which
+   opens the full options page where you can set it to `http://localhost:8080` (see
+   the main README's Setup section).
+5. Once logged in, the popup switches to showing a green dot and **"Connected as
+   compliance@lango.demo"** (or whichever account you used) — that's the confirmation
+   login worked.
 6. Go to [chatgpt.com](https://chatgpt.com), type a prompt containing something
    sensitive-looking (e.g. a made-up national ID or phone number), and hit Enter.
    You should see a "Lango: scanning…" banner, followed by either the prompt being
