@@ -32,6 +32,20 @@ pilot plan below describes.
   see README.md) means a judge hitting a cold backend still sees the dashboard
   immediately with mock data while the real backend wakes up, rather than a blank
   loading screen.
+- **Seeding is a manual, one-time step against production — not part of the deploy
+  pipeline.** `render.yaml`'s web service only builds and runs `lango-backend`; the
+  `seed` binary is never compiled into the Docker image at all, deliberately, since
+  `backend/src/bin/seed.rs` does a `TRUNCATE ... CASCADE` on every run — safe to rerun
+  without erroring, but not safe to run unattended on every deploy, since it would
+  wipe any real `/api/scan` data accumulated since the last deploy. **Whenever the
+  Render Postgres instance is (re)created** (a fresh Blueprint deploy, a manually
+  recreated database, etc.), someone must run `cargo run --bin seed` once, by hand,
+  against that instance's `DATABASE_URL` (see the Render Dashboard or `render postgres
+  get <id> --include-sensitive-connection-info`) — otherwise the `users` table stays
+  empty and every login attempt (including the frontend's automatic demo-account
+  login) returns 401 with no other symptom. This exact gap caused a real incident:
+  the Blueprint was validated and deployed without this manual step ever happening,
+  so production had 0 rows in every seeded table until it was caught and fixed.
 - **Target pilot**: not yet selected. Candidates would need to satisfy data-residency
   and compliance requirements of the pilot institution's sector (e.g. financial
   services hosting requirements for a bank pilot) — this decision is deferred until a

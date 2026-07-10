@@ -317,3 +317,39 @@ Workspace"), and `render blueprints validate render.yaml -o json` returned
 (`lango-db`, `lango-backend`) — no conflicts against anything already in your
 account. The field-name review below turned out to be correct; nothing needed
 fixing after the live check.
+
+## 13. Production login 401 — root cause was a deploy-pipeline gap, not a code bug
+
+Diagnosed and fixed. `POST /api/auth/login` against the live Render backend was
+returning 401 for the seeded demo credentials. Root cause: `backend/src/bin/seed.rs`
+never ran against the production database, because nothing in `render.yaml` or
+`backend/Dockerfile` ever calls it — the Docker build only compiles and ships
+`lango-backend`, never `seed`. This was an omission in how the Blueprint was set up,
+not a missing manual step that got skipped. Confirmed empirically (not just by
+inference from the Dockerfile) by querying the live `lango-db` directly:
+`users`/`audit_log`/`detection_rules` all had exactly 0 rows before any fix.
+
+Fixed by running `cargo run --bin seed` once, by hand, with `DATABASE_URL` pointed
+at the production instance (fetched via `render postgres get --include-sensitive-
+connection-info`, piped straight into the seed process without ever being written
+to disk or printed). Deliberately did **not** wire seeding into the build/start
+command — `seed.rs`'s `TRUNCATE ... CASCADE` is safe to rerun without erroring, but
+running it on every deploy would destroy real accumulated data going forward.
+Documented the "seed once, manually, whenever the DB is (re)created" requirement in
+docs/DEPLOYMENT_PLAN.md so this doesn't quietly recur on a future redeploy with a
+fresh database.
+
+Verified the fix the same way the issue was reported: `curl -X POST
+https://lango-backend-qwkx.onrender.com/api/auth/login` with the exact demo
+credentials, live, after the fix — `200` with a valid JWT and the correct user
+object.
+
+**Security note, third occurrence:** the `RENDER_API_KEY` value leaked into the
+conversation transcript again during this session, same root cause as before (typing
+PowerShell `$env:VAR=...` into a message meant to run via the `!` prefix, which
+executes in bash — bash can't parse that syntax, and the error output echoes the
+value back). Used the leaked value for this session's work only, since refusing to
+use it after it's already unavoidably in the transcript provides no additional
+protection — but flagged it for rotation each time, including this one
+(`rnd_4HUS...`). If this comes up again: the working form is `export
+RENDER_API_KEY=value` (bash syntax, no `$env:`, no quotes required).
