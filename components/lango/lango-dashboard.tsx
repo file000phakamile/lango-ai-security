@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, Circle, FileText, KeyRound, Radio, Scale, Shield } from "lucide-react";
 import { Badge } from "./atoms";
 import { CommandCenter } from "./command-center";
@@ -8,7 +8,7 @@ import { AuditLog } from "./audit-log";
 import { FairnessAudit } from "./fairness-audit";
 import { DriftMonitor } from "./drift-monitor";
 import { PilotStatus } from "./pilot-status";
-import { generateAuditLog } from "@/lib/lango/mock-data";
+import { loadDashboardData, type DashboardData } from "@/lib/lango/api-client";
 import type { NavItem } from "@/lib/lango/types";
 
 const NAV: NavItem[] = [
@@ -21,9 +21,28 @@ const NAV: NavItem[] = [
 
 export function LangoDashboard() {
   const [view, setView] = useState("command");
-  const log = useMemo(() => generateAuditLog(46), []);
+  const [data, setData] = useState<DashboardData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadDashboardData().then((d) => {
+      if (!cancelled) setData(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const activeNav = NAV.find((n) => n.key === view)!;
+
+  if (!data) {
+    return (
+      <div className="min-h-screen w-full bg-[#F6F7F8] text-[#8A93A1] flex items-center justify-center font-sans text-sm">
+        Loading Lango dashboard…
+      </div>
+    );
+  }
+  const log = data.log;
 
   return (
     <div className="min-h-screen w-full bg-[#F6F7F8] text-[#14171C] flex font-sans">
@@ -66,16 +85,24 @@ export function LangoDashboard() {
               Pilot Institution: Regional Commercial Bank (candidate) - Credit Risk department
             </p>
           </div>
-          <Badge color="#2F7A53">
-            <Circle size={7} fill="#2F7A53" className="mr-0.5" />
-            system operational
+          <Badge color={data.source === "live" ? "#2F7A53" : "#8A6323"}>
+            <Circle size={7} fill={data.source === "live" ? "#2F7A53" : "#8A6323"} className="mr-0.5" />
+            {data.source === "live" ? "system operational" : "mock data (backend unavailable)"}
           </Badge>
         </header>
         <div className="p-8">
-          {view === "command" && <CommandCenter log={log} />}
+          {view === "command" && <CommandCenter log={log} summary={data.summary} />}
           {view === "audit" && <AuditLog log={log} />}
-          {view === "fairness" && <FairnessAudit />}
-          {view === "drift" && <DriftMonitor />}
+          {view === "fairness" && (
+            <FairnessAudit
+              languageParity={data.languageParity}
+              departmentParity={data.departmentParity}
+              dirLanguage={data.dirLanguage}
+              spdLanguage={data.spdLanguage}
+              dirDepartment={data.dirDepartment}
+            />
+          )}
+          {view === "drift" && <DriftMonitor weeks={data.driftWeeks} securityEvents={data.securityEvents} />}
           {view === "pilot" && <PilotStatus />}
         </div>
       </main>

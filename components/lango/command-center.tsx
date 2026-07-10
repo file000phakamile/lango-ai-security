@@ -4,31 +4,28 @@ import { useEffect, useState, Fragment } from "react";
 import { Activity, AlertTriangle, ArrowRight, CheckCircle2, Scale, ScanEye } from "lucide-react";
 import { Badge, KPI, Panel } from "./atoms";
 import { decisionBadge } from "./decision-badge";
-import { DRIFT_WEEKS, PIPELINE_STAGES, riskBand } from "@/lib/lango/mock-data";
+import { PIPELINE_STAGES, riskBand } from "@/lib/lango/mock-data";
+import type { DashboardSummary } from "@/lib/lango/api-client";
 import type { AuditLogEntry } from "@/lib/lango/types";
 
-export function CommandCenter({ log }: { log: AuditLogEntry[] }) {
+export function CommandCenter({ log, summary }: { log: AuditLogEntry[]; summary: DashboardSummary }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setStep((s) => (s + 1) % (PIPELINE_STAGES.length + 2)), 950);
     return () => clearInterval(t);
   }, []);
 
-  const blockedToday = log.filter((r) => r.decision !== "cleared_no_entities").length;
-  const avgRisk = (log.reduce((a, r) => a + r.risk, 0) / log.length).toFixed(2);
-  const activeAlerts = DRIFT_WEEKS.filter((w) => w.alert).length + 1;
-
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-4 gap-4">
-        <KPI label="Sessions scanned today" value={log.length} unit="reqs" Icon={Activity} />
-        <KPI label="Blocked / redacted today" value={blockedToday} unit="reqs" tone="warn" Icon={ScanEye} />
-        <KPI label="Average risk score" value={avgRisk} unit="/ 1.00" Icon={Scale} />
+        <KPI label="Sessions scanned today" value={summary.sessionsToday} unit="reqs" Icon={Activity} />
+        <KPI label="Blocked / redacted today" value={summary.blockedToday} unit="reqs" tone="warn" Icon={ScanEye} />
+        <KPI label="Average risk score" value={summary.avgRisk.toFixed(2)} unit="/ 1.00" Icon={Scale} />
         <KPI
           label="Active monitoring alerts"
-          value={activeAlerts}
+          value={summary.activeAlerts}
           unit="open"
-          tone={activeAlerts > 0 ? "danger" : "good"}
+          tone={summary.activeAlerts > 0 ? "danger" : "good"}
           Icon={AlertTriangle}
         />
       </div>

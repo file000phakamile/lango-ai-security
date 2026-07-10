@@ -11,9 +11,12 @@ import {
   YAxis,
 } from "recharts";
 import { Panel } from "./atoms";
-import { DRIFT_WEEKS, SECURITY_EVENTS } from "@/lib/lango/mock-data";
+import type { DriftWeek, SecurityEvent } from "@/lib/lango/types";
 
-export function DriftMonitor() {
+export function DriftMonitor({ weeks, securityEvents }: { weeks: DriftWeek[]; securityEvents: SecurityEvent[] }) {
+  const alertWeeks = weeks.filter((w) => w.alert);
+  const latestAlert = alertWeeks[alertWeeks.length - 1];
+
   return (
     <div className="space-y-5">
       <Panel
@@ -22,7 +25,7 @@ export function DriftMonitor() {
       >
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={DRIFT_WEEKS}>
+            <LineChart data={weeks}>
               <CartesianGrid stroke="#E1E4E8" />
               <XAxis dataKey="week" tick={{ fill: "#5B6270", fontSize: 11 }} />
               <YAxis tick={{ fill: "#5B6270", fontSize: 11 }} />
@@ -39,18 +42,21 @@ export function DriftMonitor() {
             </LineChart>
           </ResponsiveContainer>
         </div>
-        <div className="mt-3 flex items-start gap-2 bg-[#8A63231A] border border-[#8A632355] rounded p-3">
-          <AlertTriangle size={16} className="text-[#8A6323] shrink-0 mt-0.5" />
-          <p className="text-xs text-[#14171C]">
-            Week 9: PSI reached 0.27, crossing the 0.20 threshold. Alert fired within target response window (pre-tested via
-            staging drift injection) - traced to a new ID-card format from one institution, pattern rules updated same week.
-          </p>
-        </div>
+        {latestAlert && (
+          <div className="mt-3 flex items-start gap-2 bg-[#8A63231A] border border-[#8A632355] rounded p-3">
+            <AlertTriangle size={16} className="text-[#8A6323] shrink-0 mt-0.5" />
+            <p className="text-xs text-[#14171C]">
+              {latestAlert.week}: PSI reached {latestAlert.psi.toFixed(2)}, crossing the 0.20 threshold. Traced to a new ID-card
+              format from one institution in the seeded sample data; pattern rules would be reviewed the same week in a live
+              deployment.
+            </p>
+          </div>
+        )}
       </Panel>
 
       <Panel title="Security Events" sub="Prompt injection, rate-limiting and DoS mitigation - logged and reviewable">
         <div className="space-y-2">
-          {SECURITY_EVENTS.map((e, i) => {
+          {securityEvents.map((e, i) => {
             const Icon = e.type === "prompt_injection_blocked" ? Lock : e.type === "rate_limit_triggered" ? Clock : Shield;
             const color = e.type === "prompt_injection_blocked" ? "#A83A3A" : e.type === "rate_limit_triggered" ? "#8A6323" : "#5B6270";
             return (

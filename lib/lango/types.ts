@@ -13,7 +13,8 @@ export type EntityType =
   | "phone_number"
   | "full_name"
   | "medical_record_no"
-  | "api_key";
+  | "api_key"
+  | "credit_card";
 
 export type Decision =
   | "cleared_no_entities"
