@@ -11,9 +11,12 @@ use crate::{
 /// Ratio = lowest group flag rate / highest group flag rate, with a 0.80
 /// pass threshold (the "80% rule" commonly used in fairness auditing).
 /// Statistical Parity Difference = highest - lowest, in percentage points.
-const DIR_THRESHOLD: f64 = 0.80;
+pub(crate) const DIR_THRESHOLD: f64 = 0.80;
 
-fn compute_dir_spd(groups: &[ParityEntry]) -> (Option<f64>, Option<f64>) {
+/// `pub(crate)` (not private) so `routes::health` can reuse the exact same
+/// DIR/SPD math for its facility-type comparison instead of re-implementing
+/// it — see routes/health.rs's own comment.
+pub(crate) fn compute_dir_spd(groups: &[ParityEntry]) -> (Option<f64>, Option<f64>) {
     let rates: Vec<f64> = groups.iter().map(|g| g.flag_rate).collect();
     let max = rates.iter().cloned().fold(f64::MIN, f64::max);
     let min = rates.iter().cloned().fold(f64::MAX, f64::min);

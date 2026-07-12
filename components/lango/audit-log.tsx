@@ -82,6 +82,8 @@ export function AuditLog({ log }: { log: AuditLogEntry[] }) {
                             <p className="text-[#14171C]">{r.model}</p>
                             <p className="text-[#8A93A1] mt-2 mb-1">response_scan_result</p>
                             <p className="text-[#14171C]">{r.scan}</p>
+                            <p className="text-[#8A93A1] mt-2 mb-1">sensitivity_class</p>
+                            <p className="text-[#14171C]">{r.sensitivityClass}</p>
                           </div>
                         </div>
                       </td>

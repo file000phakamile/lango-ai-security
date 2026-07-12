@@ -45,9 +45,10 @@ pub async fn scan(
         INSERT INTO audit_log (
             session_id, user_id, department, language, "timestamp",
             entities_detected, risk_score, decision, reason_string,
-            ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt
+            ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt,
+            sensitivity_class, facility_type
         )
-        VALUES ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         "#,
     )
     .bind(claims.session_id)
@@ -62,6 +63,8 @@ pub async fn scan(
     .bind(&response_scan_result)
     .bind(&original_prompt_hash)
     .bind(&redacted_prompt_for_storage)
+    .bind(outcome.sensitivity_class)
+    .bind(&payload.facility_type)
     .execute(&state.db)
     .await?;
 
@@ -71,5 +74,6 @@ pub async fn scan(
         redacted_prompt: outcome.redacted_prompt,
         decision: outcome.decision.to_string(),
         reason_string: outcome.reason_string,
+        sensitivity_class: outcome.sensitivity_class.to_string(),
     }))
 }

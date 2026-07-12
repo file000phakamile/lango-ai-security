@@ -304,9 +304,10 @@ async fn main() {
             INSERT INTO audit_log (
                 session_id, user_id, department, language, "timestamp",
                 entities_detected, risk_score, decision, reason_string,
-                ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt
+                ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt,
+                sensitivity_class, facility_type
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             "#,
         )
         .bind(session_id)
@@ -322,6 +323,8 @@ async fn main() {
         .bind(response_scan_result)
         .bind(&original_prompt_hash)
         .bind(&redacted_prompt_for_storage)
+        .bind(outcome.sensitivity_class)
+        .bind(None::<&str>) // facility_type — not applicable to this main department loop; see the dedicated health-module block below
         .execute(&db)
         .await
         .expect("insert seed audit_log row");
@@ -329,6 +332,131 @@ async fn main() {
         inserted += 1;
     }
     println!("lango seed: inserted {inserted} audit_log rows (real scan_prompt() output, not fabricated)");
+
+    // -----------------------------------------------------------------
+    // Health module (Cimas Healthathon 3.0 — see docs/HEALTH_MODULE.md).
+    // A dedicated batch, separate from the main department loop above,
+    // specifically exercising the five new health entity types and the
+    // facility_type dimension the Health Data Guard view's fairness
+    // comparison needs. Same principle as the rest of this file: synthetic
+    // prompts run through the REAL detection engine (scan_prompt), not
+    // fabricated decisions/sensitivity_class values.
+    //
+    // All rows use "Patient Records" — the only existing department with a
+    // clinical framing — combined with a `facility_type` tag ("Rural
+    // Clinic" / "District Hospital" / "Urban Hospital") that a real
+    // institution would supply via the optional ScanRequest.facility_type
+    // field (see models.rs); this seed script plays that role directly.
+    // -----------------------------------------------------------------
+    const FACILITY_TYPES: &[&str] = &["Rural Clinic", "District Hospital", "Urban Hospital"];
+
+    /// Deliberately unequal across facility types (rural lowest, urban
+    /// highest) — same demonstrative purpose as `language_pii_probability`/
+    /// `department_pii_probability` above: gives the Health Data Guard
+    /// view's facility-type DIR/SPD comparison a real, non-trivial gap to
+    /// show, computed live from these rows rather than hardcoded.
+    fn facility_pii_probability(facility_type: &str) -> f64 {
+        match facility_type {
+            "Rural Clinic" => 0.45,
+            "District Hospital" => 0.58,
+            "Urban Hospital" => 0.72,
+            _ => 0.5,
+        }
+    }
+
+    /// Health-context prompts, each exercising a specific new entity type
+    /// (or none, for the clean-prompt case) — see health_rules.rs for the
+    /// detectors these are designed to trip.
+    const HEALTH_PROMPTS: &[&str] = &[
+        "Patient presents with B20 and requires ART initiation this week.", // diagnosis_code
+        "TB case confirmed as A15, start standard four-drug regimen.",      // diagnosis_code
+        "Please refill Tenofovir and Lamivudine for the patient before month end.", // medication_name
+        "Continue Metformin and Amlodipine at the current dose, review in 4 weeks.", // medication_name
+        "CD4 count 250 cells/mm3, schedule a follow-up review.",            // lab_result_value
+        "HbA1c 8.4%, discuss dietary adjustment at next visit.",            // lab_result_value
+        "Confirm medical aid number CIMAS123456 is active before admission.", // medical_aid_number
+        "Next of kin: Rutendo Gumbo, please contact if condition worsens.", // next_of_kin
+        "Emergency contact Farai Mutasa should be called if the patient is unresponsive.", // next_of_kin
+    ];
+
+    /// Clean (no-entity) health-context prompts — everyday clinical
+    /// questions with nothing to redact, same purpose as `CLEAN_PROMPTS`
+    /// above but phrased for a health setting.
+    const HEALTH_CLEAN_PROMPTS: &[&str] = &[
+        "What is the recommended follow-up interval for a stable chronic-disease patient?",
+        "Summarise the clinic's current triage protocol for walk-in patients.",
+        "What supplies are needed to restock the outpatient department this week?",
+    ];
+
+    let patient_records_candidates: Vec<(Uuid, Uuid)> = user_ids
+        .iter()
+        .filter(|(_, dept, _)| *dept == "Patient Records")
+        .map(|(id, _, _)| (*id, session_by_user[id]))
+        .collect();
+
+    let mut health_inserted = 0usize;
+    let health_row_count = 30;
+    for i in 0..health_row_count {
+        let facility_type = FACILITY_TYPES[i % FACILITY_TYPES.len()];
+        let (user_id, session_id) =
+            patient_records_candidates[rng.gen_range(0..patient_records_candidates.len())];
+
+        let roll: f64 = rng.gen_range(0.0..1.0);
+        let prompt = if roll < facility_pii_probability(facility_type) {
+            HEALTH_PROMPTS[i % HEALTH_PROMPTS.len()]
+        } else {
+            HEALTH_CLEAN_PROMPTS[rng.gen_range(0..HEALTH_CLEAN_PROMPTS.len())]
+        };
+
+        let outcome = scan_prompt(prompt);
+        let original_prompt_hash = hash_prompt(prompt);
+        let response_scan_result = response_scan_result_for(outcome.decision);
+        let redacted_prompt_for_storage =
+            if outcome.decision == "redacted_and_forwarded" || outcome.decision == "redacted_low_confidence_review" {
+                Some(outcome.redacted_prompt.clone())
+            } else {
+                None
+            };
+        let entities_json = serde_json::to_value(&outcome.entities_detected).expect("serialize entities");
+
+        let gap_minutes = rng.gen_range(14..54);
+        cursor -= Duration::minutes(gap_minutes);
+
+        sqlx::query(
+            r#"
+            INSERT INTO audit_log (
+                session_id, user_id, department, language, "timestamp",
+                entities_detected, risk_score, decision, reason_string,
+                ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt,
+                sensitivity_class, facility_type
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            "#,
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .bind("Patient Records")
+        .bind(LANGUAGES[rng.gen_range(0..LANGUAGES.len())])
+        .bind(cursor)
+        .bind(&entities_json)
+        .bind(outcome.risk_score)
+        .bind(outcome.decision)
+        .bind(&outcome.reason_string)
+        .bind(NO_PROVIDER_MODEL_LABEL)
+        .bind(response_scan_result)
+        .bind(&original_prompt_hash)
+        .bind(&redacted_prompt_for_storage)
+        .bind(outcome.sensitivity_class)
+        .bind(facility_type)
+        .execute(&db)
+        .await
+        .expect("insert seed health-module audit_log row");
+
+        health_inserted += 1;
+    }
+    println!(
+        "lango seed: inserted {health_inserted} health-module audit_log rows (real scan_prompt() output, facility_type-tagged)"
+    );
 
     // -----------------------------------------------------------------
     // Security events — illustrative rows only; v0.1 has no live

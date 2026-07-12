@@ -5,11 +5,20 @@ import {
   DIR,
   DRIFT_WEEKS,
   LANGUAGE_PARITY,
+  MOCK_HEALTH_SUMMARY,
   SECURITY_EVENTS,
   SPD,
   generateAuditLog,
 } from "./mock-data";
-import type { AuditLogEntry, DriftWeek, EntityType, ParityEntry, SecurityEvent } from "./types";
+import type {
+  AuditLogEntry,
+  DriftWeek,
+  EntityType,
+  HealthSummary,
+  ParityEntry,
+  SecurityEvent,
+  SensitivityClass,
+} from "./types";
 
 /**
  * Phase 4 wiring: this module is the only place in the frontend that knows
@@ -58,6 +67,7 @@ export interface DashboardData {
   spdDepartment: number | null;
   driftWeeks: DriftWeek[];
   securityEvents: SecurityEvent[];
+  healthSummary: HealthSummary;
 }
 
 class ApiError extends Error {}
@@ -106,8 +116,19 @@ interface AuditLogPageResponse {
     reason: string;
     model: string;
     scan: string;
+    sensitivityClass: SensitivityClass;
   }>;
   total: number;
+}
+
+interface HealthSummaryResponse {
+  special_category_total: number;
+  standard_count: number;
+  special_category_count: number;
+  redaction_rate: number;
+  facility_parity: Array<{ group: string; flagRate: number }>;
+  dir_facility: number | null;
+  spd_facility: number | null;
 }
 
 interface FairnessResponse {
@@ -137,12 +158,13 @@ interface CommandCenterSummaryResponse {
 async function loadLiveDashboardData(): Promise<DashboardData> {
   const token = await login();
 
-  const [auditPage, fairness, drift, security, summary] = await Promise.all([
+  const [auditPage, fairness, drift, security, summary, healthSummaryResponse] = await Promise.all([
     authedGet<AuditLogPageResponse>("/api/audit-log?page_size=100", token),
     authedGet<FairnessResponse>("/api/fairness", token),
     authedGet<DriftResponse>("/api/drift", token),
     authedGet<SecurityEventsResponse>("/api/security-events", token),
     authedGet<CommandCenterSummaryResponse>("/api/command-center/summary", token),
+    authedGet<HealthSummaryResponse>("/api/health-data-guard/summary", token),
   ]);
 
   const log: AuditLogEntry[] = auditPage.rows.map((r) => ({
@@ -156,6 +178,7 @@ async function loadLiveDashboardData(): Promise<DashboardData> {
     reason: r.reason,
     model: r.model,
     scan: r.scan,
+    sensitivityClass: r.sensitivityClass,
   }));
 
   return {
@@ -175,6 +198,15 @@ async function loadLiveDashboardData(): Promise<DashboardData> {
     spdDepartment: fairness.spd_department,
     driftWeeks: drift.weeks,
     securityEvents: security.events.map((e) => ({ ...e, time: formatEventTime(e.time) })),
+    healthSummary: {
+      specialCategoryTotal: healthSummaryResponse.special_category_total,
+      standardCount: healthSummaryResponse.standard_count,
+      specialCategoryCount: healthSummaryResponse.special_category_count,
+      redactionRate: healthSummaryResponse.redaction_rate,
+      facilityParity: healthSummaryResponse.facility_parity,
+      dirFacility: healthSummaryResponse.dir_facility,
+      spdFacility: healthSummaryResponse.spd_facility,
+    },
   };
 }
 
@@ -201,6 +233,7 @@ function loadMockDashboardData(): DashboardData {
     spdDepartment: null,
     driftWeeks: DRIFT_WEEKS,
     securityEvents: SECURITY_EVENTS,
+    healthSummary: MOCK_HEALTH_SUMMARY,
   };
 }
 

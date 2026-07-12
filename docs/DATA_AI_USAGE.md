@@ -54,18 +54,66 @@ Generated records follow the shapes defined in
 
 **No — by design, and this is the entire point of the product.** Lango's purpose is
 to prevent sensitive personal data (national IDs, bank account numbers, phone
-numbers, full names, medical record numbers, API keys) from leaving an institution via
-AI prompts in the first place. This demo does not collect, store, or transmit any real
-personal data: the "entities detected" shown in the Audit Log are entity *type*
-labels (e.g. `national_id`) attached to synthetic rows, never actual ID numbers or
-names. This is real, implemented behaviour today, not just a target-production
-principle: `backend/src/detection/scan.rs` strips matched entities from the prompt
-before anything is logged, and `audit_log.original_prompt_hash` stores a SHA-256 hash
-of the original prompt — never the raw text — with `redacted_prompt` storing only the
+numbers, full names, medical record numbers, API keys, and — since the health module,
+see below — diagnosis codes, medication names, medical aid numbers, lab result values,
+and next-of-kin names) from leaving an institution via AI prompts in the first place.
+This demo does not collect, store, or transmit any real personal data: the "entities
+detected" shown in the Audit Log are entity *type* labels (e.g. `national_id`,
+`diagnosis_code`) attached to synthetic rows, never actual ID numbers, names, or
+decoded conditions — see the health module section below for why a diagnosis code is
+never decoded to a plain-language condition name anywhere in a response. This is real,
+implemented behaviour today, not just a target-production principle:
+`backend/src/detection/scan.rs` strips matched entities from the prompt before
+anything is logged, and `audit_log.original_prompt_hash` stores a SHA-256 hash of the
+original prompt — never the raw text — with `redacted_prompt` storing only the
 sanitised version. The target production system carries the same principle forward
 unchanged; what's still aspirational there is the AI Gateway actually forwarding the
 sanitised prompt to a live provider, not the redaction-before-logging behaviour
 itself.
+
+## Health module — new entity types, and a new sensitivity-class axis
+
+Built for the Cimas Healthathon 3.0 submission (a separate competition — see
+[HEALTH_MODULE.md](HEALTH_MODULE.md) for the full, self-contained writeup). Additive
+only: everything above this section describes the original seven entity types and
+remains true unchanged. Two things were added:
+
+1. **Five new entity types** (`backend/src/detection/health_rules.rs`):
+   `diagnosis_code`, `medication_name`, `medical_aid_number`, `lab_result_value`,
+   `next_of_kin`. The same honesty standard already applied to the name heuristic
+   above applies here, stated with the same plainness:
+   - `diagnosis_code` gates an ICD-10 shape regex against a **~40-entry illustrative
+     dictionary** (HIV/AIDS, TB, malaria, diabetes, hypertension, common
+     maternal-health codes — the conditions most relevant to a Zimbabwean
+     primary/district health context, sourced from publicly documented WHO ICD-10
+     chapter listings). **This is not a complete ICD-10 implementation** — real
+     ICD-10 has tens of thousands of codes across 22 chapters; a shape-valid code not
+     in this dictionary is silently missed (false negative), not guessed at.
+   - `medication_name` matches against a **~50-entry illustrative dictionary**
+     (ART/antiretrovirals, TB treatment, antimalarials, common chronic-disease
+     medications relevant to Zimbabwe's essential-medicines context) — not
+     Zimbabwe's full Essential Drugs List (EDLIZ), which runs to several hundred
+     entries.
+   - `medical_aid_number` is a **generic, unvalidated** pattern (letters + digits),
+     not checked against any real medical aid provider's actual format — same
+     honesty tier as the existing `bank_account` pattern.
+   - `lab_result_value` only fires when a lab-value-shaped number appears near a
+     recognised lab-test keyword (CD4 count, viral load, HbA1c, etc.) — a bare
+     number is never flagged on its own. False negatives (unusually phrased lab
+     values) are expected and accepted; false positives on ordinary numbers are not.
+   - `next_of_kin` is not a new detector — it's the existing `full_name` heuristic,
+     contextually reclassified when a name appears near "next of kin", "emergency
+     contact", or "guardian". It inherits every limitation of that heuristic.
+2. **`sensitivity_class`** — a NEW axis, independent of detection confidence: every
+   entity type is tagged `standard` (the original seven) or
+   `special_category_health` (the five new ones above). A `special_category_health`
+   match is never eligible for the `redacted_low_confidence_review` leniency band
+   described above under "What does a correct output look like?" — it only ever
+   redacts-and-forwards (if confident enough) or fails closed (if not), enforced by a
+   real unit test in `backend/src/detection/scan.rs`. See
+   [HEALTH_MODULE.md](HEALTH_MODULE.md) for the full reasoning, and
+   [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) for why aggregate/trend views built on
+   this data show only a total count, never a per-condition breakdown.
 
 ## AI approach category
 

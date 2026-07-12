@@ -3,5 +3,6 @@ pub mod auth;
 pub mod command_center;
 pub mod drift;
 pub mod fairness;
+pub mod health;
 pub mod scan;
 pub mod security_events;

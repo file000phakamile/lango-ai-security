@@ -13,6 +13,41 @@
 | **Misuse risk** | Lango sits in a position of real trust — it processes (in the target system) the full, unredacted content of every staff prompt before redaction happens, meaning a compromise of Lango itself would expose exactly the sensitive data it's meant to protect. This is a concentration-of-risk tradeoff inherent to the gateway model, and is why tenant isolation, encryption, and access control are treated as first-class requirements rather than an afterthought. The deployed v0.1 narrows this risk today only because it carries no real institutional data yet — the architecture-level exposure the gateway model implies is unchanged and not something v0.1 has "solved." |
 | **Bias and fairness** | Actively monitored, not assumed absent, and now computed live rather than illustrated: the Fairness Audit view calls a real backend endpoint (`GET /api/fairness`) that computes Disparate Impact Ratio and Statistical Parity Difference by language and department from actual `audit_log` rows on every request. The specific numbers shown will vary between deployments and reseeds (they are no longer a single fixed "worked example" like DIR 0.67), but the mechanism — surfacing a DIR-below-0.80 breach as a mandatory review trigger rather than hiding it — is real, tested code, not a scripted demo moment. |
 
+## Stigma-aware aggregate reporting (health module)
+
+Built for the Cimas Healthathon 3.0 submission (see [HEALTH_MODULE.md](HEALTH_MODULE.md) for
+the full, self-contained writeup) — this is a real design principle, not a cosmetic choice, so
+it's stated here plainly alongside the rest of this document's security/privacy posture.
+
+Every `special_category_health` detection (diagnosis codes, medication names, medical aid
+numbers, lab result values, next-of-kin names — see `backend/src/detection/health_rules.rs`)
+carries a distinct, additional risk beyond ordinary PII exposure: **re-identification through
+aggregation.** A per-department or per-week breakdown by specific condition or medication type
+— even with no names attached, even if every individual number looks harmless in isolation —
+can be enough to identify who a detection came from once a group is small enough. In the
+Zimbabwean context this module was built for, **HIV-status stigma specifically** is the concrete
+risk this guards against: a handful of diagnosis-code detections attributed to one small team
+over one short window can quietly point back to a specific person, and the harm of that
+(discrimination, social exclusion) is categorically worse than an ordinary PII leak. This does
+not require anyone to act maliciously — it can happen from entirely ordinary, well-intentioned
+dashboard use by a compliance officer who never intended to identify anyone.
+
+Because of this, the rule is applied structurally, not left to reviewer discipline:
+
+- **Restricted** — any aggregate or trend surface: `GET /api/health-data-guard/summary` and the
+  Health Data Guard dashboard view return only a total `special_category_health` count, a
+  redaction rate, and the coarse `standard`/`special_category_health` split, plus a
+  facility-type parity comparison. They never group or filter by the specific entity type
+  detected (diagnosis_code vs. medication_name vs. etc.), let alone by the specific ICD-10 code
+  or medication name decoded from a match — see `backend/src/routes/health.rs`'s own comment,
+  which carries the identical reasoning next to the code it governs.
+- **Not restricted** — the existing, per-entry Audit Log detail view (the existing expandable
+  row, scoped to one specific, already-flagged session). A compliance officer reviewing that one
+  row can still see exactly which entity types were detected in it (`AuditLogRow.sensitivity_class`,
+  `routes::audit_log::get_audit_log`, both unrestricted, both scoped to one row at a time) — that
+  is the legitimate, authorized, per-case review this product exists to support. The restriction
+  is specifically on *aggregate* and *trend* reporting, not on that existing per-entry detail.
+
 ## Risk-level classification
 
 **Medium-to-high risk.** This is stated plainly, not softened: Lango is designed to

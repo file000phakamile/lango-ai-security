@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Circle, FileText, KeyRound, Radio, Scale, Shield } from "lucide-react";
+import { AlertTriangle, Circle, FileText, HeartPulse, KeyRound, Radio, Scale, Shield } from "lucide-react";
 import { Badge } from "./atoms";
 import { CommandCenter } from "./command-center";
 import { AuditLog } from "./audit-log";
 import { FairnessAudit } from "./fairness-audit";
 import { DriftMonitor } from "./drift-monitor";
 import { PilotStatus } from "./pilot-status";
+import { HealthDataGuard } from "./health-data-guard";
 import { loadDashboardData, type DashboardData } from "@/lib/lango/api-client";
 import type { NavItem } from "@/lib/lango/types";
 
@@ -17,6 +18,10 @@ const NAV: NavItem[] = [
   { key: "fairness", label: "Fairness Audit", Icon: Scale },
   { key: "drift", label: "Drift & Security", Icon: AlertTriangle },
   { key: "pilot", label: "Pilot & Sandbox", Icon: KeyRound },
+  // Sixth view, added by the health module (Cimas Healthathon 3.0 — see
+  // docs/HEALTH_MODULE.md). Appended, not inserted — the five existing
+  // entries above keep their original order and keys unchanged.
+  { key: "health", label: "Health Data Guard", Icon: HeartPulse },
 ];
 
 export function LangoDashboard() {
@@ -104,6 +109,7 @@ export function LangoDashboard() {
           )}
           {view === "drift" && <DriftMonitor weeks={data.driftWeeks} securityEvents={data.securityEvents} />}
           {view === "pilot" && <PilotStatus />}
+          {view === "health" && <HealthDataGuard healthSummary={data.healthSummary} />}
         </div>
       </main>
     </div>

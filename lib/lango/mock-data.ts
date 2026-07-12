@@ -4,10 +4,12 @@ import type {
   Department,
   DriftWeek,
   EntityType,
+  HealthSummary,
   ParityEntry,
   PipelineStage,
   RiskBand,
   SecurityEvent,
+  SensitivityClass,
 } from "./types";
 
 /* ---------------------------------------------------------
@@ -42,6 +44,22 @@ const ENTITY_TYPES: EntityType[] = [
   "api_key",
 ];
 const MODEL_CONNECTORS = ["Connector: Provider A, model v1", "Connector: Provider B, model v1"];
+
+// Health module (Cimas Healthathon 3.0 — see docs/HEALTH_MODULE.md). Mirrors
+// backend/src/detection/health_rules.rs's `sensitivity_class` mapping, kept
+// here only so the client-side mock-data fallback path (used when the real
+// backend is unreachable) can compute the same field the real API returns —
+// not a second source of truth for the mapping itself.
+const HEALTH_ENTITY_TYPES: EntityType[] = [
+  "diagnosis_code",
+  "medication_name",
+  "medical_aid_number",
+  "lab_result_value",
+  "next_of_kin",
+];
+function sensitivityClassFor(entities: EntityType[]): SensitivityClass {
+  return entities.some((e) => HEALTH_ENTITY_TYPES.includes(e)) ? "special_category_health" : "standard";
+}
 
 function pad(n: number) {
   return n.toString().padStart(2, "0");
@@ -93,6 +111,7 @@ export function generateAuditLog(count = 46): AuditLogEntry[] {
       reason,
       model: pick(rand, MODEL_CONNECTORS),
       scan,
+      sensitivityClass: sensitivityClassFor(entities),
     });
   }
   return rows;
@@ -146,6 +165,30 @@ export const SECURITY_EVENTS: SecurityEvent[] = [
   { time: "2026-07-08 11:20Z", type: "rate_limit_triggered", detail: "Institution-level API quota at 92%, alert sent to ops." },
   { time: "2026-07-07 19:47Z", type: "prompt_injection_blocked", detail: "Encoded payload in code block flagged and rejected." },
 ];
+
+/* ---------------------------------------------------------
+   Health module mock fallback data (Cimas Healthathon 3.0 — see
+   docs/HEALTH_MODULE.md). Used only when the real backend is unreachable,
+   same fallback pattern as everything else in this file — illustrative
+   fixed numbers, not computed from `generateAuditLog`'s output (which
+   doesn't currently generate health entity types — see ENTITY_TYPES above).
+--------------------------------------------------------- */
+export const MOCK_FACILITY_PARITY: ParityEntry[] = [
+  { group: "Rural Clinic", flagRate: 5.8 },
+  { group: "District Hospital", flagRate: 7.1 },
+  { group: "Urban Hospital", flagRate: 8.9 },
+];
+const facilityMax = Math.max(...MOCK_FACILITY_PARITY.map((f) => f.flagRate));
+const facilityMin = Math.min(...MOCK_FACILITY_PARITY.map((f) => f.flagRate));
+export const MOCK_HEALTH_SUMMARY: HealthSummary = {
+  specialCategoryTotal: 18,
+  standardCount: 42,
+  specialCategoryCount: 18,
+  redactionRate: 72.2,
+  facilityParity: MOCK_FACILITY_PARITY,
+  dirFacility: Math.round((facilityMin / facilityMax) * 100) / 100,
+  spdFacility: Math.round((facilityMax - facilityMin) * 10) / 10,
+};
 
 export const PIPELINE_STAGES: PipelineStage[] = [
   { key: "auth", label: "Authentication", sub: "JWT + Argon2" },

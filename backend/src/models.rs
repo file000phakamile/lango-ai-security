@@ -59,6 +59,14 @@ pub struct ScanRequest {
     /// Not derived from the prompt itself (no language detection is
     /// implemented in v0.1) — it's whatever the caller declares.
     pub language: Option<String>,
+    /// Optional facility-type tag (e.g. "Rural Clinic" / "District Hospital"
+    /// / "Urban Hospital"), added for the health module (see
+    /// docs/HEALTH_MODULE.md) — same caller-declared, not-derived-from-the-
+    /// prompt pattern as `language` above, used only to populate the Health
+    /// Data Guard view's facility-type fairness comparison
+    /// (`routes/health.rs`). Existing callers (the dashboard, the browser
+    /// extension) simply omit this and are entirely unaffected.
+    pub facility_type: Option<String>,
 }
 
 /// Matches what `lib/lango/mock-data.ts` implied a scan result looked like,
@@ -71,6 +79,10 @@ pub struct ScanResponse {
     pub redacted_prompt: String,
     pub decision: String,
     pub reason_string: String,
+    /// "standard" or "special_category_health" — see the health module's
+    /// SensitivityClass axis (`detection::health_rules`). Independent from
+    /// `decision`.
+    pub sensitivity_class: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +103,13 @@ pub struct AuditLogRow {
     pub reason_string: String,
     pub ai_model_used: String,
     pub response_scan_result: String,
+    /// "standard" or "special_category_health" — see the health module's
+    /// SensitivityClass axis. Shown only in this per-entry detail view (the
+    /// existing expandable Audit Log row, scoped to one specific session) —
+    /// per Part 3's stigma-aware aggregate-reporting rule, this same
+    /// breakdown must NOT be exposed in any aggregate/trend view. See
+    /// routes/health.rs's own comment for the full reasoning.
+    pub sensitivity_class: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,6 +124,8 @@ pub struct AuditLogEntry {
     pub reason: String,
     pub model: String,
     pub scan: String,
+    #[serde(rename = "sensitivityClass")]
+    pub sensitivity_class: String,
 }
 
 impl From<AuditLogRow> for AuditLogEntry {
@@ -120,6 +141,7 @@ impl From<AuditLogRow> for AuditLogEntry {
             reason: r.reason_string,
             model: r.ai_model_used,
             scan: r.response_scan_result,
+            sensitivity_class: r.sensitivity_class,
         }
     }
 }
@@ -243,4 +265,37 @@ pub struct CommandCenterSummary {
     pub blocked_today: i64,
     pub avg_risk_score: f64,
     pub active_alerts: i64,
+}
+
+// ---------------------------------------------------------------------------
+// Health module — Health Data Guard summary (routes/health.rs)
+//
+// Deliberately does NOT include any breakdown by entity type (diagnosis_code
+// vs medication_name vs etc.), let alone by specific condition/medication —
+// see Part 3's stigma-aware aggregate-reporting rule, and the comment on
+// `routes::health::get_health_summary` for the full reasoning. Only a total
+// count and the standard/special-category split (both explicitly permitted)
+// are exposed at the aggregate level.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct HealthSummaryResponse {
+    pub special_category_total: i64,
+    pub standard_count: i64,
+    pub special_category_count: i64,
+    /// % of special_category_health rows with decision =
+    /// 'redacted_and_forwarded' (out of all special_category_health rows,
+    /// including blocked ones) — never `redacted_low_confidence_review`,
+    /// per Part 2's hard rule, so that decision value structurally cannot
+    /// appear in this denominator/numerator relationship for health rows.
+    pub redaction_rate: f64,
+    /// Same DIR/SPD math as routes/fairness.rs's department/language
+    /// parity, adapted to a new grouping dimension (facility_type) and
+    /// scoped to special_category_health rows only — checks whether
+    /// special-category detection is equitable across facility types (e.g.
+    /// a rural clinic vs. an urban hospital), not just departments.
+    pub facility_parity: Vec<ParityEntry>,
+    pub dir_facility: Option<f64>,
+    pub spd_facility: Option<f64>,
+    pub threshold: f64,
 }

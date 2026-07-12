@@ -55,7 +55,7 @@ pub async fn get_audit_log(
                 r#"
                 SELECT a.id, u.email AS user_email, a.department, a."timestamp",
                        a.entities_detected, a.risk_score, a.decision, a.reason_string,
-                       a.ai_model_used, a.response_scan_result
+                       a.ai_model_used, a.response_scan_result, a.sensitivity_class
                 FROM audit_log a
                 JOIN users u ON u.id = a.user_id
                 WHERE a.decision = $1
@@ -74,7 +74,7 @@ pub async fn get_audit_log(
                 r#"
                 SELECT a.id, u.email AS user_email, a.department, a."timestamp",
                        a.entities_detected, a.risk_score, a.decision, a.reason_string,
-                       a.ai_model_used, a.response_scan_result
+                       a.ai_model_used, a.response_scan_result, a.sensitivity_class
                 FROM audit_log a
                 JOIN users u ON u.id = a.user_id
                 ORDER BY a."timestamp" DESC
