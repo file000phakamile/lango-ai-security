@@ -156,6 +156,36 @@
         color: #5b6270;
         line-height: 1.4;
       }
+      .consent-text {
+        font-size: 11px;
+        line-height: 1.5;
+        color: #14171c;
+        background: #ffffff;
+        border: 1px solid #e1e4e8;
+        border-radius: 6px;
+        padding: 10px;
+        margin-bottom: 10px;
+      }
+      .consent-text p {
+        margin: 0 0 8px;
+      }
+      .consent-text p:last-child {
+        margin-bottom: 0;
+      }
+      .consent-version {
+        font-size: 10px;
+        color: #8a93a1;
+        text-align: center;
+        margin: 0 0 8px;
+      }
+      #consentMessage {
+        font-size: 11px;
+        min-height: 14px;
+        margin: 4px 0 0;
+      }
+      #consentMessage.error {
+        color: #a83a3a;
+      }
     </style>
   </head>
   <body>
@@ -183,7 +213,30 @@
       <span id="advancedLink" class="advanced-link">Advanced: change API URL (local dev)</span>
     </div>
 
-    <!-- Shown when logged in. -->
+    <!-- Shown when logged in but the current organisation's consent policy
+         has not yet been accepted by this user — before any scanning is
+         permitted, per the multi-tenancy task's Part 4. Takes priority over
+         loggedInView below; see the render() logic in popup.js. -->
+    <div id="consentView" class="hidden">
+      <div class="banner">Before you can scan any prompts, please review and accept this consent notice.</div>
+      <div class="consent-text">
+        <p><strong>What Lango scans:</strong> every prompt you submit to a supported AI chat site
+        while this extension is active is sent to your organisation's Lango backend for scanning
+        before it reaches the AI provider.</p>
+        <p><strong>What gets redacted or blocked:</strong> sensitive information Lango detects
+        (e.g. national IDs, bank account numbers, phone numbers, names, medical information) is
+        replaced with a placeholder before your message is sent, or the message is blocked
+        entirely if Lango isn't confident enough to redact it safely.</p>
+        <p><strong>What gets logged:</strong> your organisation's compliance team can see which
+        prompts were flagged, what was detected, and the decision made — never your raw,
+        unredacted prompt text, which Lango does not store.</p>
+      </div>
+      <p class="consent-version">Policy version: <span id="consentVersionText">—</span></p>
+      <button id="acceptConsentBtn" class="primary">I acknowledge and accept</button>
+      <div id="consentMessage"></div>
+    </div>
+
+    <!-- Shown when logged in and consented. -->
     <div id="loggedInView" class="hidden">
       <div class="row">Prompts scanned this session</div>
       <div class="count" id="scanCount">0</div>

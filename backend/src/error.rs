@@ -16,6 +16,13 @@ pub enum AppError {
     Unauthorized(String),
     #[error("{0}")]
     Forbidden(String),
+    /// Distinct from a plain `Forbidden` specifically so a caller (the
+    /// browser extension) can match on `error.code == "CONSENT_REQUIRED"`
+    /// and show its consent screen, rather than a generic "access denied"
+    /// message — see routes::scan's consent gate and Part 4 of the
+    /// multi-tenancy task.
+    #[error("{0}")]
+    ConsentRequired(String),
     #[error("{0}")]
     NotFound(String),
     #[error("database error: {0}")]
@@ -45,6 +52,7 @@ impl AppError {
             AppError::BadRequest(_) => ("BAD_REQUEST", StatusCode::BAD_REQUEST),
             AppError::Unauthorized(_) => ("UNAUTHORIZED", StatusCode::UNAUTHORIZED),
             AppError::Forbidden(_) => ("FORBIDDEN", StatusCode::FORBIDDEN),
+            AppError::ConsentRequired(_) => ("CONSENT_REQUIRED", StatusCode::FORBIDDEN),
             AppError::NotFound(_) => ("NOT_FOUND", StatusCode::NOT_FOUND),
             AppError::Database(_) => ("DATABASE_ERROR", StatusCode::INTERNAL_SERVER_ERROR),
             AppError::Hash(_) => ("HASH_ERROR", StatusCode::INTERNAL_SERVER_ERROR),

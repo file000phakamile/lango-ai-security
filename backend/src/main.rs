@@ -49,6 +49,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/api/auth/login", post(routes::auth::login))
+        .route("/api/consent/accept", post(routes::consent::accept_consent))
         .route("/api/scan", post(routes::scan::scan))
         .route("/api/audit-log", get(routes::audit_log::get_audit_log))
         .route("/api/fairness", get(routes::fairness::get_fairness))

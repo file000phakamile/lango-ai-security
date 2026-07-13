@@ -12,12 +12,26 @@
 const DEFAULT_API_BASE_URL = "https://lango-backend-qwkx.onrender.com";
 
 async function getSettings() {
-  const stored = await chrome.storage.local.get(["jwt", "apiBaseUrl", "scanCount", "user"]);
+  const stored = await chrome.storage.local.get([
+    "jwt",
+    "apiBaseUrl",
+    "scanCount",
+    "user",
+    "requiresConsent",
+    "consentPolicyVersion",
+  ]);
   return {
     jwt: stored.jwt ?? null,
     apiBaseUrl: stored.apiBaseUrl || DEFAULT_API_BASE_URL,
     scanCount: stored.scanCount ?? 0,
     user: stored.user ?? null,
+    // Part 4 of the multi-tenancy change: a brand-new user in a brand-new
+    // organisation must accept a data-use consent screen before they can
+    // scan anything. Stored here (not just returned once from login) so
+    // reopening the popup without a fresh login still shows the consent
+    // screen if it was never actually acknowledged.
+    requiresConsent: stored.requiresConsent ?? false,
+    consentPolicyVersion: stored.consentPolicyVersion ?? null,
   };
 }
 
@@ -58,11 +72,20 @@ async function scanPrompt(prompt) {
 
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
+    let code = null;
     try {
       const body = await res.json();
       message = body?.error?.message ?? message;
+      code = body?.error?.code ?? null;
     } catch {
       // non-JSON error body — keep the HTTP-status message
+    }
+    // Distinct from a generic api_error so the popup/content script can
+    // react specifically (open the consent screen) rather than showing a
+    // generic failure banner — see routes/consent.rs and routes/scan.rs's
+    // consent gate on the backend side.
+    if (code === "CONSENT_REQUIRED") {
+      return { ok: false, error: "consent_required", message };
     }
     return { ok: false, error: "api_error", message };
   }
@@ -100,8 +123,59 @@ async function login(email, password, apiBaseUrl) {
   }
 
   const body = await res.json();
-  await chrome.storage.local.set({ jwt: body.token, apiBaseUrl, user: body.user });
-  return { ok: true, user: body.user };
+  await chrome.storage.local.set({
+    jwt: body.token,
+    apiBaseUrl,
+    user: body.user,
+    requiresConsent: Boolean(body.requires_consent),
+    consentPolicyVersion: body.consent_policy_version ?? null,
+  });
+  return {
+    ok: true,
+    user: body.user,
+    requiresConsent: Boolean(body.requires_consent),
+    consentPolicyVersion: body.consent_policy_version ?? null,
+  };
+}
+
+async function acceptConsent() {
+  const { jwt, apiBaseUrl, consentPolicyVersion } = await getSettings();
+  if (!jwt) {
+    return { ok: false, message: "Not logged in." };
+  }
+  if (!consentPolicyVersion) {
+    return { ok: false, message: "No pending consent policy version to accept." };
+  }
+
+  let res;
+  try {
+    res = await fetch(`${apiBaseUrl}/api/consent/accept`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({ policy_version: consentPolicyVersion }),
+    });
+  } catch (err) {
+    return { ok: false, message: `Could not reach ${apiBaseUrl}: ${err?.message ?? err}` };
+  }
+
+  if (!res.ok) {
+    let message = `Consent could not be recorded (HTTP ${res.status})`;
+    try {
+      const body = await res.json();
+      message = body?.error?.message ?? message;
+    } catch {
+      // ignore non-JSON error body
+    }
+    return { ok: false, message };
+  }
+
+  // Consent accepted — clear the pending flag so the popup switches back
+  // to its normal connected view immediately, without needing a fresh login.
+  await chrome.storage.local.set({ requiresConsent: false });
+  return { ok: true };
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -114,7 +188,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "LANGO_LOGOUT") {
-    chrome.storage.local.remove(["jwt", "user"]).then(() => sendResponse({ ok: true }));
+    chrome.storage.local.remove(["jwt", "user", "requiresConsent", "consentPolicyVersion"]).then(() =>
+      sendResponse({ ok: true }),
+    );
+    return true;
+  }
+  if (message?.type === "LANGO_ACCEPT_CONSENT") {
+    acceptConsent().then(sendResponse);
     return true;
   }
   if (message?.type === "LANGO_GET_STATUS") {
@@ -124,6 +204,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         apiBaseUrl: s.apiBaseUrl,
         scanCount: s.scanCount,
         user: s.user,
+        requiresConsent: s.requiresConsent,
+        consentPolicyVersion: s.consentPolicyVersion,
       }),
     );
     return true;

@@ -22,6 +22,34 @@ pub async fn scan(
         ));
     }
 
+    // Consent gate (Part 4 of the multi-tenancy task): "before any scanning
+    // is permitted" is a hard requirement, enforced here server-side —
+    // checked fresh against the database on every call, NOT read from the
+    // JWT, since a token issued at login time can't reflect a consent
+    // acceptance (or an organisation's policy-version bump) that happened
+    // after that token was minted. The extension's popup is expected to
+    // gate its OWN UI on this too (see LoginResponse.requires_consent), but
+    // this check is what actually stops an unconsented scan from being
+    // processed regardless of what the client does or doesn't enforce.
+    let (user_consent_version, org_consent_version): (Option<String>, String) = sqlx::query_as(
+        r#"
+        SELECT u.consent_policy_version, o.consent_policy_version
+        FROM users u
+        JOIN organisations o ON o.id = u.organisation_id
+        WHERE u.id = $1
+        "#,
+    )
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await?;
+    if user_consent_version.as_deref() != Some(org_consent_version.as_str()) {
+        return Err(AppError::ConsentRequired(
+            "Data-use consent is required before scanning. Please open the Lango extension \
+             popup and accept the consent screen."
+                .to_string(),
+        ));
+    }
+
     let outcome = scan_prompt(&payload.prompt);
     let original_prompt_hash = hash_prompt(&payload.prompt);
     let response_scan_result = response_scan_result_for(outcome.decision);

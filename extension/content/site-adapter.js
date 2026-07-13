@@ -103,10 +103,18 @@ const LangoSiteAdapter = (() => {
     // service worker was killed and failed to wake), or the background
     // worker itself reporting ok !== true, both mean the prompt is NOT sent.
     if (!response || response.ok !== true) {
-      const detail =
-        response?.error === "not_authenticated"
-          ? "not logged in — open the Lango extension options"
-          : response?.message || "Lango backend unreachable";
+      let detail;
+      if (response?.error === "not_authenticated") {
+        detail = "not logged in — open the Lango extension options";
+      } else if (response?.error === "consent_required") {
+        // Server-side consent gate (routes/scan.rs) — distinct from a
+        // plain auth/network failure so the message points at the right
+        // fix (open the popup and accept the consent screen), not "log in
+        // again" or "check your connection".
+        detail = "consent required — open the Lango extension popup and accept the consent screen";
+      } else {
+        detail = response?.message || "Lango backend unreachable";
+      }
       showBanner(`Lango: blocked — ${detail}. Prompt not sent.`, "blocked", { autoDismiss: false });
       return;
     }

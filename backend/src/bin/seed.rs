@@ -195,9 +195,19 @@ async fn main() {
 
     for u in SEED_USERS {
         let password_hash = hash_password(u.password).expect("hash seed password");
+        // consent_accepted_at/consent_policy_version are set immediately,
+        // at insert time — every seeded user (including the AI4I-submission
+        // demo account) must already be past the consent gate (see
+        // routes/consent.rs, migration 0012), otherwise this change would
+        // insert a brand-new consent screen into the demo account's
+        // previously-judged flow. See Questions.md's CRITICAL CONSTRAINT
+        // note. 'v1' matches the demo organisation's
+        // consent_policy_version from migration 0009.
         let user_id: Uuid = sqlx::query_scalar(
-            "INSERT INTO users (email, password_hash, department, role, organisation_id) \
-             VALUES ($1, $2, $3, $4, $5) RETURNING id",
+            "INSERT INTO users (\
+                email, password_hash, department, role, organisation_id, \
+                consent_accepted_at, consent_policy_version\
+             ) VALUES ($1, $2, $3, $4, $5, now(), 'v1') RETURNING id",
         )
         .bind(u.email)
         .bind(password_hash)

@@ -18,6 +18,9 @@ const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 const loggedOutView = document.getElementById("loggedOutView");
 const loggedInView = document.getElementById("loggedInView");
+const consentView = document.getElementById("consentView");
+const consentVersionText = document.getElementById("consentVersionText");
+const consentMessage = document.getElementById("consentMessage");
 const scanCountEl = document.getElementById("scanCount");
 const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
@@ -78,17 +81,32 @@ function render(status) {
 
   scanCountEl.textContent = status.scanCount;
 
-  if (status.loggedIn) {
+  if (status.loggedIn && status.requiresConsent) {
+    // Logged in, but this user has never accepted (or needs to re-accept)
+    // their organisation's data-use consent policy — takes priority over
+    // the normal loggedInView. Nothing is sent to the AI Gateway for this
+    // user until they acknowledge this screen (enforced server-side too —
+    // see routes/scan.rs's consent gate, not just this UI).
+    statusDot.classList.remove("off");
+    statusDot.classList.add("on");
+    statusText.textContent = status.user ? `Connected as ${status.user.email}` : "Connected";
+    consentVersionText.textContent = status.consentPolicyVersion || "—";
+    consentView.classList.remove("hidden");
+    loggedInView.classList.add("hidden");
+    loggedOutView.classList.add("hidden");
+  } else if (status.loggedIn) {
     statusDot.classList.remove("off");
     statusDot.classList.add("on");
     statusText.textContent = status.user ? `Connected as ${status.user.email}` : "Connected";
     loggedInView.classList.remove("hidden");
+    consentView.classList.add("hidden");
     loggedOutView.classList.add("hidden");
   } else {
     statusDot.classList.remove("on");
     statusDot.classList.add("off");
     statusText.textContent = "Not logged in";
     loggedInView.classList.add("hidden");
+    consentView.classList.add("hidden");
     loggedOutView.classList.remove("hidden");
   }
 }
@@ -124,6 +142,20 @@ document.getElementById("loginBtn").addEventListener("click", async () => {
       refreshStatus();
     } else {
       setLoginMessage((result && result.message) || "Login failed.", "error");
+    }
+  });
+});
+
+document.getElementById("acceptConsentBtn").addEventListener("click", () => {
+  consentMessage.textContent = "Recording…";
+  consentMessage.className = "";
+  chrome.runtime.sendMessage({ type: "LANGO_ACCEPT_CONSENT" }, (result) => {
+    if (result && result.ok) {
+      consentMessage.textContent = "";
+      refreshStatus();
+    } else {
+      consentMessage.textContent = (result && result.message) || "Could not record consent.";
+      consentMessage.className = "error";
     }
   });
 });

@@ -14,6 +14,25 @@ pub struct UserRow {
     pub department: String,
     pub role: String,
     pub organisation_id: Uuid,
+    /// When this user last accepted a consent policy — `None` until they
+    /// accept one for the first time. See `routes::consent` and migration
+    /// 0012. Every user that existed before the consent step was built
+    /// (including the AI4I-submission demo account) was backfilled to
+    /// already-consented by that migration, so this is only ever `None`
+    /// for a genuinely new user.
+    pub consent_accepted_at: Option<DateTime<Utc>>,
+    /// The organisation's CURRENT consent policy version, joined from
+    /// `organisations.consent_policy_version` (not `users`' own column —
+    /// see below) — this is what a not-yet-consented user needs to be
+    /// shown and accept.
+    pub org_consent_policy_version: String,
+    /// The specific version THIS user actually accepted, if any —
+    /// distinct from `org_consent_policy_version` above so that if an
+    /// organisation ever bumps its policy version, a user who accepted an
+    /// older one shows up as needing to re-consent (comparing this against
+    /// the org's current version), rather than every user being
+    /// permanently grandfathered in the moment they first accept anything.
+    pub user_accepted_policy_version: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,6 +54,19 @@ pub struct LoginRequest {
 pub struct LoginResponse {
     pub token: String,
     pub user: UserPublic,
+    /// `true` when this user has never accepted `consent_policy_version`
+    /// below (either never consented at all, or consented to an older
+    /// version the organisation has since bumped). The caller (the
+    /// extension's popup — see Part 4 of the multi-tenancy task) must show
+    /// the consent screen and call `POST /api/consent/accept` before
+    /// `/api/scan` will do anything for this user — see routes::scan's own
+    /// gate, which enforces this server-side regardless of what the client
+    /// does, since a UI-only gate is not a real guarantee.
+    pub requires_consent: bool,
+    /// The organisation's current consent policy version — what the
+    /// consent screen describes, and what `POST /api/consent/accept` must
+    /// be called with.
+    pub consent_policy_version: String,
 }
 
 /// JWT claims. `sub` is the user id; department/role/organisation_id are
@@ -52,6 +84,30 @@ pub struct Claims {
     pub role: String,
     pub organisation_id: Uuid,
     pub exp: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Consent (Part 4 of the multi-tenancy task) — see routes/consent.rs and
+// migration 0012.
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /api/consent/accept`. Carries the policy version the
+/// caller is accepting (read directly from the consent screen they were
+/// just shown, sourced from `LoginResponse.consent_policy_version`) rather
+/// than the endpoint silently assuming "whatever the org's current version
+/// is right now" — if the organisation's policy changed between the
+/// consent screen being shown and the user clicking accept, that mismatch
+/// is caught explicitly (see routes::consent) instead of silently
+/// recording acceptance of a version the user never actually saw.
+#[derive(Debug, Deserialize)]
+pub struct ConsentAcceptRequest {
+    pub policy_version: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConsentAcceptResponse {
+    pub accepted: bool,
+    pub policy_version: String,
 }
 
 // ---------------------------------------------------------------------------

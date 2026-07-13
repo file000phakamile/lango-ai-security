@@ -80,8 +80,13 @@ async fn insert_org(pool: &PgPool, name: &str) -> Uuid {
 
 async fn insert_user(pool: &PgPool, org_id: Uuid, email: &str, department: &str, role: &str) -> SeededUser {
     let user_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO users (email, password_hash, department, role, organisation_id) \
-         VALUES ($1, 'unused-hash', $2, $3, $4) RETURNING id",
+        // consent_accepted_at/consent_policy_version are set immediately so
+        // the scan-endpoint test below isn't blocked by the consent gate
+        // (routes/scan.rs) added in Part 4 of the multi-tenancy task — this
+        // file is testing tenant isolation, not the consent flow itself,
+        // which has its own dedicated coverage.
+        "INSERT INTO users (email, password_hash, department, role, organisation_id, consent_accepted_at, consent_policy_version) \
+         VALUES ($1, 'unused-hash', $2, $3, $4, now(), 'v1') RETURNING id",
     )
     .bind(email)
     .bind(department)

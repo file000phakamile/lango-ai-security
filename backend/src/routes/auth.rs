@@ -19,7 +19,15 @@ pub async fn login(
     }
 
     let user = sqlx::query_as::<_, UserRow>(
-        "SELECT id, email, password_hash, department, role, organisation_id FROM users WHERE email = $1",
+        r#"
+        SELECT u.id, u.email, u.password_hash, u.department, u.role, u.organisation_id,
+               u.consent_accepted_at,
+               o.consent_policy_version AS org_consent_policy_version,
+               u.consent_policy_version AS user_accepted_policy_version
+        FROM users u
+        JOIN organisations o ON o.id = u.organisation_id
+        WHERE u.email = $1
+        "#,
     )
     .bind(payload.email.trim().to_lowercase())
     .fetch_optional(&state.db)
@@ -52,6 +60,13 @@ pub async fn login(
         user.organisation_id,
     )?;
 
+    // Requires (re-)consent if the user has never accepted anything, OR
+    // accepted a version that isn't the organisation's CURRENT version
+    // (e.g. the organisation bumped consent_policy_version since this user
+    // last consented) — comparing against the org's live column rather
+    // than trusting a possibly-stale value cached anywhere else.
+    let requires_consent = user.user_accepted_policy_version.as_deref() != Some(user.org_consent_policy_version.as_str());
+
     Ok(Json(LoginResponse {
         token,
         user: UserPublic {
@@ -61,5 +76,7 @@ pub async fn login(
             role: user.role,
             organisation_id: user.organisation_id,
         },
+        requires_consent,
+        consent_policy_version: user.org_consent_policy_version,
     }))
 }
