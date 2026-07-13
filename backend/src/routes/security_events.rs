@@ -14,8 +14,10 @@ pub async fn get_security_events(
     require_role(&claims, &["compliance_admin"])?;
 
     let rows: Vec<SecurityEventRow> = sqlx::query_as::<_, SecurityEventRow>(
-        "SELECT event_type, detail, created_at FROM security_events ORDER BY created_at DESC LIMIT 20",
+        "SELECT event_type, detail, created_at FROM security_events \
+         WHERE organisation_id = $1 ORDER BY created_at DESC LIMIT 20",
     )
+    .bind(claims.organisation_id)
     .fetch_all(&state.db)
     .await?;
 

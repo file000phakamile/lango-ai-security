@@ -14,8 +14,10 @@ pub async fn get_drift(
     require_role(&claims, &["compliance_admin"])?;
 
     let rows: Vec<DriftSnapshotRow> = sqlx::query_as::<_, DriftSnapshotRow>(
-        "SELECT week_start, psi_score, kl_divergence_score FROM drift_snapshots ORDER BY week_start ASC",
+        "SELECT week_start, psi_score, kl_divergence_score FROM drift_snapshots \
+         WHERE organisation_id = $1 ORDER BY week_start ASC",
     )
+    .bind(claims.organisation_id)
     .fetch_all(&state.db)
     .await?;
 

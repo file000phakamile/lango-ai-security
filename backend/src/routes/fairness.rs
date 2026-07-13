@@ -33,6 +33,7 @@ pub async fn get_fairness(
     AuthUser(claims): AuthUser,
 ) -> AppResult<Json<FairnessResponse>> {
     require_role(&claims, &["compliance_admin"])?;
+    let org_id = claims.organisation_id;
 
     let department_parity: Vec<ParityEntry> = sqlx::query_as::<_, ParityEntry>(
         r#"
@@ -43,10 +44,12 @@ pub async fn get_fairness(
                    1
                )::float8 AS flag_rate
         FROM audit_log
+        WHERE organisation_id = $1
         GROUP BY department
         ORDER BY department
         "#,
     )
+    .bind(org_id)
     .fetch_all(&state.db)
     .await?;
 
@@ -59,11 +62,12 @@ pub async fn get_fairness(
                    1
                )::float8 AS flag_rate
         FROM audit_log
-        WHERE language IS NOT NULL
+        WHERE organisation_id = $1 AND language IS NOT NULL
         GROUP BY language
         ORDER BY language
         "#,
     )
+    .bind(org_id)
     .fetch_all(&state.db)
     .await?;
 

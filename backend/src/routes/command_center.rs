@@ -12,36 +12,43 @@ pub async fn get_summary(
     AuthUser(claims): AuthUser,
 ) -> AppResult<Json<CommandCenterSummary>> {
     require_role(&claims, &["compliance_admin"])?;
+    let org_id = claims.organisation_id;
 
     let sessions_scanned_today: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit_log WHERE \"timestamp\" >= date_trunc('day', now())",
+        "SELECT COUNT(*) FROM audit_log WHERE organisation_id = $1 AND \"timestamp\" >= date_trunc('day', now())",
     )
+    .bind(org_id)
     .fetch_one(&state.db)
     .await?;
 
     let blocked_today: i64 = sqlx::query_scalar(
         r#"
         SELECT COUNT(*) FROM audit_log
-        WHERE "timestamp" >= date_trunc('day', now())
+        WHERE organisation_id = $1
+          AND "timestamp" >= date_trunc('day', now())
           AND decision <> 'cleared_no_entities'
         "#,
     )
+    .bind(org_id)
     .fetch_one(&state.db)
     .await?;
 
     let avg_risk_score: Option<f64> = sqlx::query_scalar(
-        "SELECT AVG(risk_score)::float8 FROM audit_log WHERE \"timestamp\" >= date_trunc('day', now())",
+        "SELECT AVG(risk_score)::float8 FROM audit_log WHERE organisation_id = $1 AND \"timestamp\" >= date_trunc('day', now())",
     )
+    .bind(org_id)
     .fetch_one(&state.db)
     .await?;
 
     // "Active alerts" = weeks currently over the PSI drift threshold, plus
     // any fairness group currently below the DIR threshold. Recomputed live
     // rather than stored, so it can't drift out of sync with the views that
-    // show the underlying detail.
+    // show the underlying detail. Both scoped to the caller's own
+    // organisation — no cross-tenant aggregation.
     let drift_alerts: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM drift_snapshots WHERE psi_score >= 0.20",
+        "SELECT COUNT(*) FROM drift_snapshots WHERE organisation_id = $1 AND psi_score >= 0.20",
     )
+    .bind(org_id)
     .fetch_one(&state.db)
     .await?;
 
@@ -51,6 +58,7 @@ pub async fn get_summary(
             SELECT department AS grp,
                    100.0 * SUM(CASE WHEN decision <> 'cleared_no_entities' THEN 1 ELSE 0 END) / COUNT(*) AS flag_rate
             FROM audit_log
+            WHERE organisation_id = $1
             GROUP BY department
         )
         SELECT (CASE
@@ -60,6 +68,7 @@ pub async fn get_summary(
         FROM parity
         "#,
     )
+    .bind(org_id)
     .fetch_one(&state.db)
     .await?;
 

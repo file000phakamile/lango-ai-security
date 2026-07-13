@@ -40,15 +40,19 @@ pub async fn get_health_summary(
     AuthUser(claims): AuthUser,
 ) -> AppResult<Json<HealthSummaryResponse>> {
     require_role(&claims, &["compliance_admin"])?;
+    let org_id = claims.organisation_id;
 
-    let standard_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_log WHERE sensitivity_class = 'standard'")
-            .fetch_one(&state.db)
-            .await?;
+    let standard_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE organisation_id = $1 AND sensitivity_class = 'standard'",
+    )
+    .bind(org_id)
+    .fetch_one(&state.db)
+    .await?;
 
     let special_category_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit_log WHERE sensitivity_class = 'special_category_health'",
+        "SELECT COUNT(*) FROM audit_log WHERE organisation_id = $1 AND sensitivity_class = 'special_category_health'",
     )
+    .bind(org_id)
     .fetch_one(&state.db)
     .await?;
 
@@ -70,9 +74,10 @@ pub async fn get_health_summary(
             0.0
         )
         FROM audit_log
-        WHERE sensitivity_class = 'special_category_health'
+        WHERE organisation_id = $1 AND sensitivity_class = 'special_category_health'
         "#,
     )
+    .bind(org_id)
     .fetch_one(&state.db)
     .await?;
 
@@ -95,11 +100,12 @@ pub async fn get_health_summary(
                    1
                )::float8 AS flag_rate
         FROM audit_log
-        WHERE facility_type IS NOT NULL AND sensitivity_class = 'special_category_health'
+        WHERE organisation_id = $1 AND facility_type IS NOT NULL AND sensitivity_class = 'special_category_health'
         GROUP BY facility_type
         ORDER BY facility_type
         "#,
     )
+    .bind(org_id)
     .fetch_all(&state.db)
     .await?;
 
