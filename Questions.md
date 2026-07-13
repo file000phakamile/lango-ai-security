@@ -702,3 +702,48 @@ row. This is the exact upgrade path the deployed Render database will go through
   reachable via `sessions.user_id -> users.organisation_id`, and no query filters the
   `sessions` table directly by tenant — adding a column nothing reads would just be
   another value that could drift out of sync with the user it belongs to.
+
+## 20. Multi-tenancy Parts 2-5 — remaining judgment calls, logged together
+
+**Department-scoped aggregate views (Part 2/3)**: the task's own wording is
+"department_reviewer sees flagged items and audit entries for their own department
+only" — specific to the audit log. I read that narrowly and deliberately did NOT
+extend `department_reviewer` access to the cross-department aggregate views
+(fairness, drift, security events, health summary, command center): those charts
+compare rates ACROSS departments/languages/facility-types by nature, and a
+department-scoped role seeing "your department vs. every other department's rate"
+would leak relative information about other departments even without row-level
+detail. Those five endpoints stayed `compliance_admin`-only; only `audit_log` (the
+literal "audit entries" the task named) got real department-level query scoping.
+
+**No dashboard UI for organisation signup (Part 5)**: implemented and tested the
+backend endpoint fully (`POST /api/organisations/signup`, verified live via curl —
+see the multi-tenancy commit series), but did not build a Next.js signup page. The
+task explicitly said this "does not need to be polished, it needs to work end to
+end" — given the size of the rest of this change, I judged a real backend endpoint
+with real tests and a documented gap was the honest v1, consistent with this
+codebase's existing pattern of stating "no login UI yet" plainly rather than
+rushing a half-built form. A real signup page (plus the dashboard's still-missing
+general login UI) is the natural next step.
+
+**Signup's first user always gets `department = "Administration"`**: a
+`compliance_admin` isn't department-scoped anyway (`department_reviewer` is the only
+role the `department` column actually gates), so this is a placeholder value, not a
+real modeled department — logged so it's not mistaken for one later if
+`department_reviewer` invites are ever added to this same organisation.
+
+**Signup wraps both inserts (organisation + first user) in one transaction,** rolling
+back entirely if the user insert fails (e.g. duplicate email) — verified explicitly
+with a test asserting no orphaned organisation row is left behind. This was a
+deliberate design choice once the two-insert shape was necessary for the
+transaction/organisation-name-uniqueness check to be meaningful at all, not scope
+creep: a self-service signup endpoint that could leave a user-less organisation row
+behind on a common, expected failure (someone reusing an email) would be a real bug,
+not a hypothetical one.
+
+**Consent acceptance re-validates the policy version being accepted against the
+organisation's CURRENT version (Part 4)**, rejecting a mismatch rather than silently
+recording whatever the client sends. This wasn't explicitly asked for, but follows
+directly from tracking `consent_policy_version` as a real, bump-able value per
+organisation — accepting an already-stale version silently would make that tracking
+meaningless the first time a policy actually changes.

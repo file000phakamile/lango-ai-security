@@ -5,5 +5,6 @@ pub mod consent;
 pub mod drift;
 pub mod fairness;
 pub mod health;
+pub mod organisations;
 pub mod scan;
 pub mod security_events;

@@ -111,6 +111,23 @@ pub struct ConsentAcceptResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Organisation self-service signup (Part 5 of the multi-tenancy task) — see
+// routes/organisations.rs. Deliberately minimal — a working first version,
+// not a polished onboarding flow (no email verification, no invitations for
+// additional users yet). Returns the same shape `POST /api/auth/login`
+// does (reusing `LoginResponse`), so the new compliance_admin is logged in
+// immediately rather than needing a separate login step right after
+// signing up.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct OrganisationSignupRequest {
+    pub organisation_name: String,
+    pub email: String,
+    pub password: String,
+}
+
+// ---------------------------------------------------------------------------
 // Scan
 // ---------------------------------------------------------------------------
 
