@@ -69,7 +69,43 @@ prompt-injection/rate-limit/DoS detection runs (the Security Events table is see
 with illustrative rows, not produced by a live detector); there's no scheduled drift
 job (drift snapshots are computed once at seed time); and the dashboard has no login
 screen of its own — it authenticates transparently as a seeded demo account (see
-[Environment Variables](#environment-variables)).
+[Environment Variables](#environment-variables)), even though the backend itself now
+supports real multi-user, multi-organisation login (see
+[Multi-tenancy](#multi-tenancy-v01) below) — the dashboard's own login/signup UI is
+the gap, not the backend behind it.
+
+### Multi-tenancy (v0.1)
+
+**Real, not aspirational.** Every user belongs to exactly one organisation and one of
+three roles, enforced by query-level filtering on every endpoint — not just a schema
+column that happens to exist:
+
+- **`staff`** — can call `/api/scan` only; no dashboard access at all.
+- **`department_reviewer`** — dashboard access (the audit log specifically) scoped to
+  their own department, within their own organisation.
+- **`compliance_admin`** — full dashboard access across their own organisation, never
+  another organisation's data.
+
+Cross-tenant isolation is verified by dedicated tests
+(`backend/tests/multi_tenant_isolation.rs`) that create a second, fully independent
+organisation and confirm every endpoint returns zero rows/values derived from it for
+a caller in the first — not just that the right rows come back, which would pass even
+if the filter were silently missing. A new organisation can register itself via
+`POST /api/organisations/signup` (backend-only in v0.1 — see
+[Questions.md](Questions.md) for why there's no dashboard signup page yet), and a
+brand-new user in a brand-new organisation must accept a data-use consent screen
+(shown in the browser extension's popup, recorded with a timestamp and the specific
+policy version accepted) before `/api/scan` will do anything for them — checked fresh
+against the database on every call, not the JWT.
+
+**The demo account this repo's judged submission depends on
+(`compliance@lango.demo`) is deliberately, explicitly preserved unchanged**: it's now
+the seeded `compliance_admin` account of one specific "Regional Commercial Bank
+Demo" organisation rather than the only account in the system, but it logs in with
+the same password, sees the same audit history, and works identically through both
+the dashboard and the extension — verified directly, not assumed, as part of this
+change. See [Questions.md](Questions.md) for the full design writeup and the
+judgment calls behind it.
 
 **Both halves are now deployed and wired together**: the backend runs on Render
 (`https://lango-backend-qwkx.onrender.com`, real Rust/Axum + PostgreSQL) and the
@@ -292,10 +328,15 @@ Stated plainly, not softened:
 - **No live security-event detection.** Prompt-injection/rate-limit/DoS detection is
   not implemented; the Security Events table is seeded with illustrative example rows
   (see `backend/src/bin/seed.rs`), not produced by a live detector.
-- **No login screen.** The dashboard authenticates as a single fixed seeded demo
-  account (see [Environment Variables](#environment-variables)) rather than having its
-  own auth UI or real multi-user credentials — fine for a judge/reviewer demo, not how
-  a real multi-user deployment would work.
+- **No dashboard login/signup screen — but real multi-user, multi-organisation
+  accounts underneath.** The dashboard still authenticates as a single fixed seeded
+  demo account (see [Environment Variables](#environment-variables)) rather than
+  having its own auth UI, but that's now a frontend gap, not a backend one: the
+  backend supports real per-organisation, per-role accounts and a self-service
+  signup endpoint (`POST /api/organisations/signup`) — see
+  [Multi-tenancy](#multi-tenancy-v01) above. A judge/reviewer using the deployed demo
+  never needs to notice this gap; a real deployment would need the dashboard UI built
+  to match what the API already does.
 - **The deployed Vercel demo now calls the live Render backend by default**, not mock
   data — `NEXT_PUBLIC_USE_MOCK_DATA` is unset on the Vercel deployment. Mock data is
   only ever the automatic fallback if the backend is unreachable (e.g. mid cold-start
