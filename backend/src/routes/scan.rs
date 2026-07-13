@@ -46,9 +46,9 @@ pub async fn scan(
             session_id, user_id, department, language, "timestamp",
             entities_detected, risk_score, decision, reason_string,
             ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt,
-            sensitivity_class, facility_type
+            sensitivity_class, facility_type, organisation_id
         )
-        VALUES ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        VALUES ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         "#,
     )
     .bind(claims.session_id)
@@ -65,6 +65,7 @@ pub async fn scan(
     .bind(&redacted_prompt_for_storage)
     .bind(outcome.sensitivity_class)
     .bind(&payload.facility_type)
+    .bind(claims.organisation_id)
     .execute(&state.db)
     .await?;
 

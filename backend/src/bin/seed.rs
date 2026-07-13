@@ -30,6 +30,13 @@ use lango_backend::{
     detection::scan::{hash_prompt, response_scan_result_for, scan_prompt, NO_PROVIDER_MODEL_LABEL},
 };
 
+/// Fixed, well-known id for the "Regional Commercial Bank Demo" organisation
+/// created by migration 0009 — matches that migration's literal INSERT, not
+/// generated here, so this seed script always targets the exact same
+/// organisation the AI4I-submission demo account depends on. See
+/// Questions.md's CRITICAL CONSTRAINT note.
+const DEMO_ORG_ID: &str = "a0000000-0000-0000-0000-000000000001";
+
 struct SeedUser {
     email: &'static str,
     password: &'static str,
@@ -174,15 +181,19 @@ async fn main() {
     let mut user_ids: Vec<(Uuid, &'static str, &'static str)> = Vec::new(); // (id, department, role)
     let mut session_by_user: std::collections::HashMap<Uuid, Uuid> = std::collections::HashMap::new();
 
+    let demo_org_id: Uuid = DEMO_ORG_ID.parse().expect("DEMO_ORG_ID is a valid UUID literal");
+
     for u in SEED_USERS {
         let password_hash = hash_password(u.password).expect("hash seed password");
         let user_id: Uuid = sqlx::query_scalar(
-            "INSERT INTO users (email, password_hash, department, role) VALUES ($1, $2, $3, $4) RETURNING id",
+            "INSERT INTO users (email, password_hash, department, role, organisation_id) \
+             VALUES ($1, $2, $3, $4, $5) RETURNING id",
         )
         .bind(u.email)
         .bind(password_hash)
         .bind(u.department)
         .bind(u.role)
+        .bind(demo_org_id)
         .fetch_one(&db)
         .await
         .expect("insert seed user");
@@ -243,11 +254,13 @@ async fn main() {
     ];
     for (entity_type, pattern, rule_type) in rule_rows {
         sqlx::query(
-            "INSERT INTO detection_rules (entity_type, pattern, rule_type, active) VALUES ($1, $2, $3, true)",
+            "INSERT INTO detection_rules (entity_type, pattern, rule_type, active, organisation_id) \
+             VALUES ($1, $2, $3, true, $4)",
         )
         .bind(entity_type)
         .bind(pattern)
         .bind(rule_type)
+        .bind(demo_org_id)
         .execute(&db)
         .await
         .expect("insert detection rule");
@@ -305,9 +318,9 @@ async fn main() {
                 session_id, user_id, department, language, "timestamp",
                 entities_detected, risk_score, decision, reason_string,
                 ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt,
-                sensitivity_class, facility_type
+                sensitivity_class, facility_type, organisation_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             "#,
         )
         .bind(session_id)
@@ -325,6 +338,7 @@ async fn main() {
         .bind(&redacted_prompt_for_storage)
         .bind(outcome.sensitivity_class)
         .bind(None::<&str>) // facility_type — not applicable to this main department loop; see the dedicated health-module block below
+        .bind(demo_org_id)
         .execute(&db)
         .await
         .expect("insert seed audit_log row");
@@ -428,9 +442,9 @@ async fn main() {
                 session_id, user_id, department, language, "timestamp",
                 entities_detected, risk_score, decision, reason_string,
                 ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt,
-                sensitivity_class, facility_type
+                sensitivity_class, facility_type, organisation_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             "#,
         )
         .bind(session_id)
@@ -448,6 +462,7 @@ async fn main() {
         .bind(&redacted_prompt_for_storage)
         .bind(outcome.sensitivity_class)
         .bind(facility_type)
+        .bind(demo_org_id)
         .execute(&db)
         .await
         .expect("insert seed health-module audit_log row");
@@ -474,12 +489,14 @@ async fn main() {
     ];
     for (event_type, detail, minutes_ago) in security_rows {
         sqlx::query(
-            "INSERT INTO security_events (event_type, detail, session_id, created_at) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO security_events (event_type, detail, session_id, created_at, organisation_id) \
+             VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(event_type)
         .bind(detail)
         .bind(first_session)
         .bind(Utc::now() - Duration::minutes(*minutes_ago))
+        .bind(demo_org_id)
         .execute(&db)
         .await
         .expect("insert security event");
@@ -528,11 +545,13 @@ async fn main() {
         let kl = kl_divergence(&current_dist, &baseline_dist);
 
         sqlx::query(
-            "INSERT INTO drift_snapshots (week_start, psi_score, kl_divergence_score) VALUES ($1, $2, $3)",
+            "INSERT INTO drift_snapshots (week_start, psi_score, kl_divergence_score, organisation_id) \
+             VALUES ($1, $2, $3, $4)",
         )
         .bind(week_start)
         .bind(psi as f32)
         .bind(kl as f32)
+        .bind(demo_org_id)
         .execute(&db)
         .await
         .expect("insert drift snapshot");

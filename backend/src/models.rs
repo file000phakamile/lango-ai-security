@@ -13,6 +13,7 @@ pub struct UserRow {
     pub password_hash: String,
     pub department: String,
     pub role: String,
+    pub organisation_id: Uuid,
 }
 
 #[derive(Debug, Serialize)]
@@ -21,6 +22,7 @@ pub struct UserPublic {
     pub email: String,
     pub department: String,
     pub role: String,
+    pub organisation_id: Uuid,
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,8 +37,12 @@ pub struct LoginResponse {
     pub user: UserPublic,
 }
 
-/// JWT claims. `sub` is the user id; department/role are embedded so route
-/// handlers don't need a DB round-trip just to authorize a request.
+/// JWT claims. `sub` is the user id; department/role/organisation_id are
+/// embedded so route handlers don't need a DB round-trip just to authorize
+/// a request. `organisation_id` is THE tenant-isolation boundary for every
+/// query in this codebase from the multi-tenancy change onward — see
+/// Questions.md and every route handler's own query, which filters on it
+/// with no exceptions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: Uuid,
@@ -44,6 +50,7 @@ pub struct Claims {
     pub email: String,
     pub department: String,
     pub role: String,
+    pub organisation_id: Uuid,
     pub exp: usize,
 }
 

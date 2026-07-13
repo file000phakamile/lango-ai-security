@@ -33,6 +33,7 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
 
 pub const SESSION_TTL_HOURS: i64 = 12;
 
+#[allow(clippy::too_many_arguments)]
 pub fn issue_token(
     secret: &str,
     user_id: Uuid,
@@ -40,6 +41,7 @@ pub fn issue_token(
     email: &str,
     department: &str,
     role: &str,
+    organisation_id: Uuid,
 ) -> Result<String, AppError> {
     let exp = (Utc::now() + Duration::hours(SESSION_TTL_HOURS)).timestamp() as usize;
     let claims = Claims {
@@ -48,6 +50,7 @@ pub fn issue_token(
         email: email.to_string(),
         department: department.to_string(),
         role: role.to_string(),
+        organisation_id,
         exp,
     };
     encode(

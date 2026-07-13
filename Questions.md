@@ -648,3 +648,57 @@ canonical entity-type ordering.
 `plain_language.rs`): `next_of_kin` and `full_name` both mean "a name" to an end
 user, and if a future entity type is added that also maps to an existing phrase, it
 should collapse rather than list the same plain-language description twice.
+
+## 19. Multi-tenancy migration — verified the backfill against PRE-EXISTING
+data, not just a fresh database, and a real gotcha this caught
+
+**Why this needed its own real test, not just "migrations ran on a fresh DB"**:
+`sqlx::migrate!("./migrations")` embeds migration file contents into the binary AT
+COMPILE TIME. Running it against a brand-new, empty database (the easy check) never
+actually exercises the two-phase "add nullable column, backfill existing rows, set
+NOT NULL" logic in migration 0010 — a fresh database has zero pre-existing rows for
+that backfill UPDATE to ever touch. The real question is whether the deployed Render
+database (which already has real seeded rows under the OLD schema) survives this
+migration cleanly. Simulated that directly: reverted to the pre-0009/0010 migration
+set, inserted one row into every affected table by hand (matching the old schema
+exactly, no organisation_id column), then restored 0009/0010 and re-ran the server.
+
+**A real gotcha this caught**: the first attempt to verify this silently used a STALE
+compiled binary. Because `sqlx::migrate!` reads the `migrations/` directory at macro-
+expansion time, and only `main.rs` itself hadn't changed (only the `.sql` files
+inside `migrations/` had), `cargo build`'s incremental compilation didn't detect that
+the embedded migration set was stale and skipped recompiling `main.rs` — the rerun
+still only knew about migrations 0001-0008 even after 0009/0010 were back on disk.
+Caught this because the verification query afterward failed with "relation
+organisations does not exist" instead of confirming the backfill — a real result, not
+an assumption, is what surfaced this. Fixed by `touch src/main.rs` to force
+recompilation. Noting this here because it's a genuine footgun for anyone
+re-verifying a migration change against this codebase later: touch `main.rs` (or any
+file that already depends on the migrations, e.g. `bin/seed.rs`) after editing a
+`.sql` file if a rebuild doesn't seem to be picking up the change.
+
+**Result after the real rebuild**: all five pre-existing rows (users, audit_log,
+detection_rules, security_events, drift_snapshots) correctly backfilled to the fixed
+demo organisation id, `organisations` table created with exactly the one expected
+row. This is the exact upgrade path the deployed Render database will go through.
+
+**Design decisions from Part 1, logged together**:
+- **`users.email` stays globally UNIQUE, not unique-per-organisation.** The login
+  flow (`POST /api/auth/login`) takes only email+password, no organisation selector —
+  keeping email globally unique means that query needs no change and there's no
+  ambiguity about which organisation a login belongs to. The tradeoff: one email
+  address can only ever belong to one organisation (can't be a member of two banks
+  with the same email), which matches how this product's single-employer use case
+  actually works in practice (an employee has an institutional email, and needs
+  exactly one Lango account, not a Slack-style membership-in-many-workspaces model).
+- **A fixed, hardcoded UUID for the demo organisation**
+  (`a0000000-0000-0000-0000-000000000001`), not `gen_random_uuid()` looked up by
+  name. This lets migration 0010's backfill, `backend/src/bin/seed.rs`, and any test
+  reference the exact same row without a lookup step, and makes the CRITICAL
+  CONSTRAINT (the AI4I demo account must keep working) mechanically verifiable rather
+  than "whatever id happened to be generated."
+- **`sessions` was NOT given an `organisation_id` column**, even though the task's
+  literal table list didn't include it either. A session's organisation is always
+  reachable via `sessions.user_id -> users.organisation_id`, and no query filters the
+  `sessions` table directly by tenant — adding a column nothing reads would just be
+  another value that could drift out of sync with the user it belongs to.

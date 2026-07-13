@@ -19,7 +19,7 @@ pub async fn login(
     }
 
     let user = sqlx::query_as::<_, UserRow>(
-        "SELECT id, email, password_hash, department, role FROM users WHERE email = $1",
+        "SELECT id, email, password_hash, department, role, organisation_id FROM users WHERE email = $1",
     )
     .bind(payload.email.trim().to_lowercase())
     .fetch_optional(&state.db)
@@ -49,6 +49,7 @@ pub async fn login(
         &user.email,
         &user.department,
         &user.role,
+        user.organisation_id,
     )?;
 
     Ok(Json(LoginResponse {
@@ -58,6 +59,7 @@ pub async fn login(
             email: user.email,
             department: user.department,
             role: user.role,
+            organisation_id: user.organisation_id,
         },
     }))
 }
