@@ -50,7 +50,7 @@ this. Five steps:
    (Edge) — type this directly into the address bar.
 2. In the top-right corner of that page, find the **Developer mode** toggle and turn
    it **on**. (This page normally hides "load your own extension" options unless this
-   is on — it's not a special or risky mode, just the one that unlocks loading an
+   is on — it's not a special or risky mode, just the one that allows loading an
    extension that isn't from the Chrome/Edge Web Store.)
 3. Three new buttons appear along the top: **Load unpacked**, **Pack extension**,
    **Update**. Click **Load unpacked**.

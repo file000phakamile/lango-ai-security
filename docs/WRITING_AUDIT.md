@@ -112,9 +112,20 @@ the instruction to flag every instance of this category regardless of
 context; Phase 2 will make the final call on how (or whether) to reword it.
 See `Questions.md` for the standing note on this call.
 
-## Phase 2 — not yet run
+## Phase 2 — what was changed
 
-This file is the complete Phase 1 inventory, committed on its own before any
-fix is applied, per the two-separate-commits instruction. Phase 2 (the fix,
-plus a second verification pass) will update this section and the flagged
-file(s) in a follow-up commit.
+- `extension/USER_GUIDE.md`, step 2 of Section 2: "unlocks loading an
+  extension" → "allows loading an extension". Meaning unchanged (Developer
+  Mode still literally does gate/enable that button); removes the one
+  buzzword-register word choice found in the entire audited scope.
+
+## Second pass (post-fix verification)
+
+Re-ran the full grep sweep (filler openers, buzzwords, redundant-summary
+closers, hedged language, instruction-leakage phrases) across the same scope
+after the Phase 2 edit above. No new instances found anywhere in scope, and
+the fix itself (a one-word substitution) introduced no new filler, buzzword,
+or hedging pattern — the only remaining hits for the audited phrases are this
+file's own references to them, which is expected for an audit record. This
+file is kept in the repo as the record of what was checked and found, not
+deleted now that Phase 2 is done.
