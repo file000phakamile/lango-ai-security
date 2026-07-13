@@ -21,7 +21,7 @@ export function PilotStatus() {
   return (
     <div className="space-y-5">
       <Panel title="Pilot Scope" sub="Candidate institution status for the current pilot">
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
           <KPI label="Pilot duration" value="8" unit="weeks" Icon={Clock} />
           <KPI label="Pilot users" value="22" unit="/ 30 target" Icon={Building2} />
           <KPI label="Data isolation" value="tenant" unit="separated" tone="good" Icon={Lock} />

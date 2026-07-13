@@ -44,8 +44,8 @@ export function FairnessAudit({
   return (
     <div className="space-y-5">
       <Panel title="Quarterly Language Parity Check" sub="Quarterly comparison of flag rates by session language, recalculated against live audit log data">
-        <div className="grid grid-cols-3 gap-6">
-          <div className="col-span-2 h-52">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 h-52">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={languageParity} layout="vertical" margin={{ left: 10 }}>
                 <CartesianGrid stroke="#E1E4E8" horizontal={false} />

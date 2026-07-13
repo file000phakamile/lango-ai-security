@@ -111,14 +111,19 @@ Stated honestly:
   labels, not colour alone, for the decision badges and risk bands. Contrast has not
   been run through a formal automated audit (e.g. axe or Lighthouse accessibility
   score) — this is a gap, not a claim of compliance.
-- **Mobile responsiveness is confirmed broken, not just untested.** Tested at 375px
-  width (see [TESTING_LOG.md](TESTING_LOG.md)) — the fixed 56-unit sidebar has no
-  responsive collapse behaviour, squeezing all content into ~150px: KPI values and
-  chart labels are cut off, and the Audit Log table shows only its first column. No
-  fix attempted yet; this needs a proper responsive redesign, not a quick patch.
+- **Mobile responsiveness: fixed and re-tested.** The sidebar collapses to a
+  slide-out drawer below the `md` (768px) breakpoint instead of squeezing content
+  into ~150px; the Audit Log becomes a stacked card list below `md`; KPI/chart grids
+  step down responsively. Verified at 375px, 414px, 768px, 1024px, and 1280px with
+  zero horizontal page overflow at any width (see [TESTING_LOG.md](TESTING_LOG.md)
+  and [../Questions.md](../Questions.md)). Still not done: a real physical device
+  pass (only an emulated viewport in a desktop browser has been tested) and a formal
+  accessibility audit — see the Colour and contrast note above and
+  TESTING_LOG.md's TODO.
 - **Keyboard navigation**: standard browser tab order works for the sidebar buttons,
-  table row expansion, and the audit-log filter dropdown, since these are native
-  `<button>`/`<select>` elements — no custom focus-trap or skip-link work has been done
+  the mobile drawer's hamburger/close buttons, table row expansion, and the
+  audit-log filter dropdown, since these are native `<button>`/`<select>` elements —
+  no custom focus-trap or skip-link work has been done
   beyond that.
 
 ## User feedback

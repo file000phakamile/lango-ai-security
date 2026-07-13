@@ -31,7 +31,70 @@ export function AuditLog({ log }: { log: AuditLogEntry[] }) {
         </select>
       }
     >
-      <div className="overflow-x-auto">
+      {/* Card list — below `md` only. A wide multi-column table doesn't
+          survive a narrow viewport by just scrolling sideways (see
+          docs/TESTING_LOG.md's 375px finding); this is a genuinely
+          different, stacked layout for the same rows/state, not the same
+          table squeezed smaller. */}
+      <div className="md:hidden space-y-2">
+        {filtered.map((r) => {
+          const d = decisionBadge(r.decision);
+          const rb = riskBand(r.risk);
+          const isOpen = expanded === r.id;
+          return (
+            <div key={r.id} className="border border-[#E1E4E8] rounded-md overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setExpanded(isOpen ? null : r.id)}
+                className="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-[#F0F1F3]"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-[#5B6270] truncate">{r.id}</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className="text-xs text-[#14171C] font-sans">{r.dept}</span>
+                    <span className="text-[10px] text-[#8A93A1] font-mono">{r.timestamp}</span>
+                  </div>
+                  <div className="text-[11px] text-[#5B6270] mt-1 truncate">
+                    {r.entities.length ? r.entities.join(", ") : "no entities detected"}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <Badge color={d.color}>{d.label}</Badge>
+                  <span className="font-mono text-xs" style={{ color: rb.color }}>
+                    {r.risk.toFixed(2)}
+                  </span>
+                </div>
+              </button>
+              {isOpen && (
+                <div className="border-t border-[#E1E4E8] bg-[#F6F7F8] p-3 text-xs space-y-2">
+                  <div>
+                    <p className="text-[#8A93A1] mb-1">reason_string</p>
+                    <p className="text-[#14171C] font-sans">{r.reason}</p>
+                  </div>
+                  <div>
+                    <p className="text-[#8A93A1] mb-1">ai_model_used</p>
+                    <p className="text-[#14171C]">{r.model}</p>
+                  </div>
+                  <div>
+                    <p className="text-[#8A93A1] mb-1">response_scan_result</p>
+                    <p className="text-[#14171C]">{r.scan}</p>
+                  </div>
+                  <div>
+                    <p className="text-[#8A93A1] mb-1">sensitivity_class</p>
+                    <p className="text-[#14171C]">{r.sensitivityClass}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {filtered.length === 0 && <p className="text-xs text-[#8A93A1] py-4 text-center">No rows match this filter.</p>}
+      </div>
+
+      {/* Full table — `md` and up only. */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-xs font-mono">
           <thead>
             <tr className="text-[#8A93A1] text-left border-b border-[#E1E4E8]">

@@ -345,13 +345,16 @@ Stated plainly, not softened:
   real unit tests (`cargo test`); everything above that (API integration, frontend)
   is verified by manual click-through, logged in
   [docs/TESTING_LOG.md](docs/TESTING_LOG.md).
-- **Mobile responsiveness is confirmed broken at small widths, not just unverified.**
-  Tested at 375px width (see [docs/TESTING_LOG.md](docs/TESTING_LOG.md)): the sidebar
-  is a fixed 224px column with no responsive breakpoint, leaving only ~150px for
-  content — KPI values and chart labels get cut off and the Audit Log table is
-  reduced to a single unreadable column. Root cause identified; fix (a collapsible
-  sidebar + responsive grid breakpoints) not yet attempted, since it's a real UI
-  change that deserves its own scoped pass rather than a rushed patch.
+- **Mobile responsiveness — fixed and re-tested, not just the original 375px
+  finding.** The sidebar is now a slide-out drawer below the `md` (768px)
+  breakpoint (hamburger toggle, backdrop, same nav), unchanged above it; the Audit
+  Log renders as a stacked card list below `md` instead of a squeezed table; KPI and
+  chart-comparison grids step down responsively. Verified at 375px, 414px, 768px,
+  1024px, and 1280px — zero horizontal page overflow at any width, confirmed by
+  screenshot, not just a scrollWidth check (see [docs/TESTING_LOG.md](docs/TESTING_LOG.md)
+  and [Questions.md](Questions.md)). Not yet tested: a real physical mobile device or
+  a screen reader/accessibility pass — both still open, see docs/TESTING_LOG.md's
+  TODO.
 - **No real user feedback yet.** No pilot users have interacted with this demo; see
   [docs/UX_DESIGN.md](docs/UX_DESIGN.md).
 

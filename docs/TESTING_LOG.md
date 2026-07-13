@@ -17,16 +17,22 @@ here; a log with only bugs in it looks untested, not perfect.
 | 2026-07-09 | All 5 views (checked via Audit Log) | Refresh consistency / hydration-mismatch regression check: reloaded the page 4 times in a row, compared the Audit Log's first 5 rows byte-for-byte each time, and watched the console for hydration warnings across all 4 reloads. | Pass — all 4 reloads produced byte-identical audit log data (same session IDs, timestamps, entities, risk scores, decisions in the same order), and zero hydration warnings appeared. This confirms the per-render `mulberry32` PRNG fix noted in `Questions.md` (item 3, prior session) is still holding — the shared-PRNG hydration-mismatch bug has not regressed. | None needed (prior fix re-confirmed, not re-applied). |
 | 2026-07-09 | All 5 views | Resized the browser to 375px width (a common small-phone width) and inspected every view, both via automated `document.documentElement.scrollWidth` checks and visual screenshot inspection. | **Fail — real, significant issue found.** No page-level horizontal overflow occurs (`scrollWidth` equals `clientWidth` on every view), so an overflow-only automated check would report this as fine — but visually, the layout is badly broken. The sidebar is a fixed `w-56` (224px) flex item (`components/lango/lango-dashboard.tsx`) with no responsive breakpoint to collapse or hide it, so at 375px width only ~150px remains for all main content. Consequences seen on every view: KPI tiles wrap into unreadable slivers with values cut off at the right edge; the Fairness Audit and Drift & Security charts render bars/lines only a few pixels wide, effectively illegible; panel titles and body copy wrap across many short lines, hugely inflating page height; and the Audit Log table shows only the `session_id` column, with every other column (timestamp, department, entities, risk score, decision) pushed off-screen — the table's own `overflow-x-auto` scroll wrapper is itself trapped inside the ~150px content column, so scrolling it does not recover a readable view. Screenshots of all 5 views at 375px were captured during this session as evidence. | **Not applied.** This needs an actual responsive redesign — e.g. a collapsible/hidden sidebar behind a toggle below a breakpoint, plus responsive grid columns for the KPI tiles and charts — which is a real UI change, not a one-line fix, and risks regressing the desktop layout if rushed through. Left as an explicit open item (see below) rather than patched quickly. This upgrades the README/UX_DESIGN "not formally verified" mobile caveat to "verified broken, root cause identified, fix not yet attempted." |
 
+| 2026-07-13 | All 5 views + Health Data Guard | Re-tested the mobile layout fix (product-depth task, Part 5) at five widths — 375px, 414px, 768px, 1024px, 1280px — via automated `document.documentElement.scrollWidth` vs. `clientWidth` checks at every width, plus visual screenshot inspection of Command Center and Audit Log at each. | **Pass.** Zero page-level horizontal overflow at any tested width (previously only checked at 375px). The sidebar (`lango-dashboard.tsx`) is now a slide-out drawer below `md` (768px) — hamburger toggle, backdrop, same nav — and pixel-identical to the original always-visible sidebar at `md` and up, confirmed by screenshot. The Audit Log table is replaced by a stacked card list below `md` (same filter/expand state as the table) instead of relying on horizontal scroll alone; the table itself is unchanged at `md`+. KPI grids and chart-comparison grids across Command Center, Fairness Audit, Drift & Security, Health Data Guard, and Pilot & Sandbox now step down to 1-2 columns below their breakpoints instead of squeezing 3-4 columns into ~150px. A real regression was caught and fixed *during this same testing pass* (not shipped): an early version of the `Panel` header fix caused the title and the Audit Log's decision-filter dropdown to overlap at exactly 768px — found by screenshotting 768px specifically, not assumed fine because 375px looked right. | **Applied.** See `components/lango/lango-dashboard.tsx`, `components/lango/audit-log.tsx`, `components/lango/atoms.tsx` (`Panel`), and the KPI/chart grid classes in `command-center.tsx`/`health-data-guard.tsx`/`fairness-audit.tsx`/`pilot-status.tsx`. Full writeup in Questions.md #22. This resolves the open item below — moved to Fixed items, not deleted, so the original finding stays in the record. |
+
+## Fixed items (found broken in an earlier pass, since resolved)
+
+- **Mobile layout at ≤375px width was unusable** (found 2026-07-09, fixed and
+  re-verified 2026-07-13 — see the table rows above for both). Root cause was
+  `lango-dashboard.tsx`'s sidebar (`w-56 shrink-0`) having no responsive variant at
+  all; fixed with a slide-out drawer below `md`, plus a stacked card list for the
+  Audit Log and responsive grid columns for every KPI/chart grid. Not just patched —
+  re-tested at 375px, 414px, 768px, 1024px, and 1280px, not only the original
+  375px case.
+
 ## Open items (found, not fixed)
 
-- **Mobile layout at ≤375px width is unusable**, per the finding above. Root cause:
-  `lango-dashboard.tsx`'s sidebar (`w-56 shrink-0`) has no responsive variant.
-  Recommended fix (not attempted here, to avoid rushing a layout change without
-  proper testing): collapse the sidebar behind a hamburger toggle below a `sm:`/`md:`
-  breakpoint, and add responsive column counts to the KPI grids
-  (`grid-cols-4` → `grid-cols-2` or `grid-cols-1` on small screens) and chart
-  containers. Should be its own scoped piece of work with its own before/after
-  screenshots at 375px, 768px, and 1024px, not a same-session patch.
+None outstanding as of 2026-07-13 — the one open item from the previous pass (mobile
+layout) is now in Fixed items above.
 
 **TODO for the team:** add further manual testing entries here as you use the app —
 particularly a pass on a real physical mobile device (this session tested an emulated

@@ -806,3 +806,56 @@ exactly as uncertain as before, just for a more precisely-documented reason.
 "verify a detection engine's behavior" into "defeat an anti-bot/anti-automation
 control on a third-party site I don't operate," which is out of scope for this task
 regardless of technical feasibility.
+
+## 22. Mobile responsiveness fix — real, tested, judgment calls
+
+Fixed the exact bug docs/TESTING_LOG.md documented at 375px: the sidebar's fixed
+`w-56` (224px) had no responsive breakpoint, squeezing all content into ~150px.
+
+**Slide-out drawer, not an icon rail** (judgment call): chose a drawer over
+collapsing to icon-only, since the sidebar's six labels ("Command Center", "Health
+Data Guard", etc.) aren't self-explanatory from icon alone, and an icon rail would
+have meant either tooltips (extra interaction cost on touch, where hover doesn't
+exist) or losing the labels entirely. Below `md` (768px): the sidebar becomes
+`fixed`, translated off-canvas by default, slides in via a hamburger button, with a
+backdrop that closes it on tap — all via CSS breakpoint classes (`md:static
+md:translate-x-0`), not a resize listener, so it self-corrects if the viewport
+crosses the breakpoint without a page reload. Above `md`: pixel-identical to the
+original always-visible sidebar, confirmed by screenshot (see below).
+
+**Audit Log: a genuinely different layout below `md`, not just a scrollable table.**
+The task specifically flagged this as "the hardest part to fix well" — a plain
+`overflow-x-auto` scroll wrapper (which the table already had) is a real fallback
+but a poor primary experience on a narrow phone. Below `md`, the table is replaced
+entirely by a stacked card list (one card per row: id, department, timestamp,
+entities, decision badge, risk score, tap to expand the same detail the table's
+row-expand already showed) sharing the exact same `expanded`/`filter` state as the
+table. At `md` and up, the original table renders unchanged.
+
+**A real regression caught and fixed during this same pass, not shipped**: an
+early version of this fix made `Panel`'s header (title/subtitle + the `right`-slot
+control, e.g. Audit Log's decision-filter dropdown) `flex-wrap` with `flex-1` on the
+title block. At exactly 768px this caused the title and dropdown to overlap/collide
+instead of cleanly wrapping — caught by actually screenshotting 768px specifically
+(not just 375px), not by inspection. Fixed by making the header `flex-col` (stacked)
+below `sm` (640px) and reverting to the *original*, previously-working `flex-row
+justify-between` at `sm` and up, rather than trying to make one clever rule handle
+every width — simpler, and provably correct at every tested width since `sm:`-and-up
+is now byte-identical to the pre-existing behavior.
+
+**KPI grids and chart-comparison grids** (`command-center.tsx`, `health-data-
+guard.tsx`, `fairness-audit.tsx`, `pilot-status.tsx`) also made responsive
+(`grid-cols-1` on mobile, stepping up to `sm:`/`lg:` variants) — not explicitly named
+in the task's two required fixes, but directly part of the same reported bug
+("KPI values and chart labels cut off"); leaving them broken while fixing only the
+sidebar and table would have been an incomplete fix of the same underlying issue.
+Also fixed Command Center's "Recent Events" row (department/timestamp vs.
+risk/decision-badge) to wrap onto two lines instead of being clipped — found by
+screenshot inspection, not anticipated in advance.
+
+**Tested at 375px, 414px (a second common phone width, not just the one in the bug
+report), 768px, 1024px, and 1280px** — real Playwright screenshots plus a
+`document.documentElement.scrollWidth > clientWidth` check at every width,
+confirming zero page-level horizontal overflow anywhere in the tested range, not
+just "looks fine in the one screenshot I took." 1024px/1280px screenshots confirm
+desktop is visually unchanged from before this fix.

@@ -17,7 +17,7 @@ export function CommandCenter({ log, summary }: { log: AuditLogEntry[]; summary:
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPI label="Sessions scanned today" value={summary.sessionsToday} unit="reqs" Icon={Activity} />
         <KPI label="Blocked / redacted today" value={summary.blockedToday} unit="reqs" tone="warn" Icon={ScanEye} />
         <KPI label="Average risk score" value={summary.avgRisk.toFixed(2)} unit="/ 1.00" Icon={Scale} />
@@ -82,14 +82,14 @@ export function CommandCenter({ log, summary }: { log: AuditLogEntry[]; summary:
             return (
               <div
                 key={r.id}
-                className="flex items-center justify-between border-b border-[#E1E4E8] last:border-0 pb-2 last:pb-0"
+                className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-[#E1E4E8] last:border-0 pb-2 last:pb-0"
               >
-                <div className="flex items-center gap-3">
-                  <d.Icon size={14} style={{ color: d.color }} />
-                  <span className="font-mono text-xs text-[#5B6270]">{r.timestamp.slice(11, 19)}</span>
-                  <span className="text-xs text-[#14171C]">{r.dept}</span>
+                <div className="flex min-w-0 items-center gap-3">
+                  <d.Icon size={14} className="shrink-0" style={{ color: d.color }} />
+                  <span className="shrink-0 font-mono text-xs text-[#5B6270]">{r.timestamp.slice(11, 19)}</span>
+                  <span className="truncate text-xs text-[#14171C]">{r.dept}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <span className="font-mono text-xs" style={{ color: rb.color }}>
                     {r.risk.toFixed(2)}
                   </span>

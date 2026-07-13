@@ -24,7 +24,7 @@ export function HealthDataGuard({ healthSummary }: { healthSummary: HealthSummar
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPI
           label="Special-category health detections"
           value={specialCategoryTotal}
@@ -80,8 +80,8 @@ export function HealthDataGuard({ healthSummary }: { healthSummary: HealthSummar
         title="Facility-Type Detection Parity"
         sub="Same Disparate Impact Ratio / Statistical Parity Difference method as the Fairness Audit view, applied to facility type (e.g. rural clinic vs. urban hospital) instead of department or language, scoped to special-category health detections"
       >
-        <div className="grid grid-cols-3 gap-6">
-          <div className="col-span-2 h-52">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 h-52">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={facilityParity} layout="vertical" margin={{ left: 10 }}>
                 <CartesianGrid stroke="#E1E4E8" horizontal={false} />
