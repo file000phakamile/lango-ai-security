@@ -1,20 +1,38 @@
 // content/deepseek-adapter.js — chat.deepseek.com-specific DOM hooks.
 //
-// *** UNVERIFIED, and the LEAST confident of the four new adapters added in
-// this pass — say this plainly rather than dressing it up. *** Never loaded
-// against a live, logged-in chat.deepseek.com session, same environment
-// blockers as every other adapter here (see Questions.md). Unlike
-// chatgpt.com, claude.ai, and even gemini.google.com, DeepSeek's web chat UI
+// *** STILL UNVERIFIED, and now confirmed UNVERIFIABLE from this specific
+// dev environment by two independent methods, not just "never gotten
+// around to it." *** Say this plainly rather than dressing it up:
+//   1. A headless-Playwright navigation to chat.deepseek.com returns an
+//      immediate HTTP 403 ("Request blocked") before any real page loads.
+//   2. A plain `curl` (no browser, no JS engine — checked specifically to
+//      rule out "it's just a headless-browser-fingerprint problem") gets an
+//      HTTP 202 whose entire body is an AWS WAF ("Goku") JavaScript
+//      challenge page — a real, active bot-verification gate that requires
+//      executing and passing a browser-fingerprint check before the site
+//      serves ANY real content, chat UI or otherwise, to either method.
+// This is a materially different (and stronger) finding than the previous
+// pass's "no display server to load a real extension in" — that blocker
+// would, at least in principle, go away with a different environment; this
+// one is the SITE itself actively refusing automated access regardless of
+// how it's driven. Contrast with copilot.microsoft.com (see
+// copilot-adapter.js), which a plain `curl` reached successfully and
+// yielded real, checkable markup — DeepSeek's WAF specifically prevented
+// the same technique from working here.
+//
+// Given that, this remains the LEAST confident of the five adapters in this
+// extension, unchanged from the previous assessment: DeepSeek's web chat UI
 // is not something this model has reliable, specific, current knowledge
 // of — there is no well-documented public convention (comparable to
 // chatgpt.com's long-stable `#prompt-textarea` id) to build on here. The
 // selectors below are a genuine best-effort guess based on common patterns
 // for a simple chat composer (a plain `<textarea>` is the most likely
-// element type for a app of this kind, more likely than a rich-text editor
+// element type for an app of this kind, more likely than a rich-text editor
 // like the other three), not a claim of specific knowledge about this site's
 // actual markup. Treat this file as the first one to rewrite from scratch
 // after checking chat.deepseek.com's real DOM directly (right-click the
-// composer → Inspect) rather than the first one to trust.
+// composer → Inspect, from a real logged-in session/browser, not
+// automation) rather than the first one to trust.
 
 const DeepSeekAdapter = {
   siteName: "chat.deepseek.com",

@@ -747,3 +747,62 @@ recording whatever the client sends. This wasn't explicitly asked for, but follo
 directly from tracking `consent_policy_version` as a real, bump-able value per
 organisation — accepting an already-stale version silently would make that tracking
 meaningless the first time a policy actually changes.
+
+## 21. Extension adapter verification, retried — real, different findings this time
+
+Re-checked whether a real browser is available in this environment before assuming
+the prior session's blockers still apply, per this task's explicit instruction.
+
+**What changed vs. the previous attempt**: this time, `npx playwright install
+chromium` succeeded and produced a working full Chromium binary plus network egress
+(confirmed by successfully navigating to `https://example.com`). Extension-loading
+itself is still blocked, though, re-confirmed directly rather than assumed: launching
+a persistent context with `--load-extension`/`--disable-extensions-except` (both the
+default headless mode and `headless: false` + `--headless=new`) produced zero
+`serviceworker` events within an 8-second wait — this environment still has no
+display server for a real (non-headless-shell) Chromium to actually run an extension
+in, the same fundamental constraint as before, just re-verified rather than presumed.
+
+**New finding: the two target SITES are also not straightforwardly reachable, for
+two different reasons per site**:
+- `chat.deepseek.com` — a headless-browser navigation returns an immediate HTTP 403
+  ("Request blocked") before any real page loads. To rule out "this is just a
+  headless-browser fingerprinting problem," also tried a plain `curl` (no browser, no
+  JS) — that gets HTTP 202 with a body that's a real, active AWS WAF ("Goku")
+  JavaScript bot-verification challenge page, not real content. Two independent
+  methods, two independent confirmations that this specific site is not reachable
+  from here right now, not just "never got around to testing it."
+- `copilot.microsoft.com` — genuinely different result. A headless-browser navigation
+  loads a real page but shows "Not available in your region" (a client-side gate, not
+  a hard block). A plain `curl`, though, returned the actual server-rendered initial
+  HTML — and that HTML contains the real composer markup: `<textarea id="userInput"
+  data-testid="composer-input" placeholder="Message Copilot">`. This is a genuine,
+  checkable fact about the live site fetched during this session, not a guess — it
+  confirms (and sharpens, via the added `data-testid`) what `copilot-adapter.js`
+  already guessed for `findComposer`. The send button did not appear anywhere in that
+  same static HTML (only 6 unrelated `<button>`s were present at all), consistent
+  with a send button that only mounts once the composer has text — this method
+  couldn't confirm or refute the send-button selectors either way, which is why
+  `site-adapter.js`'s Enter-key fallback path (independent of `findSendButton`
+  working at all) matters specifically for this adapter.
+
+**What I did with this**: updated `copilot-adapter.js`'s `findComposer` selector list
+to lead with the confirmed `data-testid="composer-input"` selector (kept the old
+`#userInput` guess right behind it, since it's the same element, confirmed present
+too) and rewrote its header comment to state the real finding plainly, including what
+was NOT confirmed (the send button). Rewrote `deepseek-adapter.js`'s header comment
+with the concrete WAF evidence, upgrading the finding from "never verified" to
+"confirmed unreachable by two independent methods" — a stronger, more specific claim
+than before, and a more useful one for whoever picks this file up next (skip
+retrying the same automated approaches; this needs an actual manual session from a
+real residential/non-datacenter connection). Updated `extension/README.md`'s
+status table and Known Fragility section, and `extension/USER_GUIDE.md`'s Caveats
+section, to reflect both changes honestly — Copilot is now better-founded than the
+other three unverified adapters (though still not "confirmed working end to end,"
+since the send button and the actual submit flow remain untested), DeepSeek is
+exactly as uncertain as before, just for a more precisely-documented reason.
+
+**Did not attempt to solve or bypass the AWS WAF challenge.** That would cross from
+"verify a detection engine's behavior" into "defeat an anti-bot/anti-automation
+control on a third-party site I don't operate," which is out of scope for this task
+regardless of technical feasibility.

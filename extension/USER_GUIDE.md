@@ -197,21 +197,30 @@ Stated plainly, not buried in fine print.
   site.
 - **Four of the five sites are implemented but genuinely unverified — read this
   before relying on them.** claude.ai, gemini.google.com, chat.deepseek.com, and
-  copilot.microsoft.com were added in this pass using a best-effort, defensively
-  written guess at each site's current input/Send-button structure — but **none of
-  the four was ever actually loaded and driven against a real, logged-in page**, for
-  the same reason chatgpt.com's own original DOM interaction wasn't independently
-  confirmed in the environment that built it (see `extension/README.md`'s
-  Verification section and `Questions.md` for the full explanation — no display
-  server available, and Chromium's headless mode doesn't support loading real browser
-  extensions). Confidence varies noticeably by site — see each adapter file's own
-  header comment (`content/claude-adapter.js`, `content/gemini-adapter.js`,
+  copilot.microsoft.com were added using a best-effort, defensively written guess at
+  each site's current input/Send-button structure. **None of the four has been loaded
+  as a real extension and driven against a real, logged-in page** — this dev
+  environment still has no display server, so Chromium never registers an extension
+  service worker at all regardless of headless mode, re-confirmed directly (not just
+  assumed) in a later pass. That said, "unverified via the extension" isn't the same
+  as "no real information at all" for every site — a follow-up pass fetched
+  copilot.microsoft.com's raw page HTML directly (no browser automation involved) and
+  found the actual composer markup server-rendered in it: a plain `<textarea
+  id="userInput" data-testid="composer-input">`, matching (and sharpening) what the
+  adapter already guessed — see `content/copilot-adapter.js`'s header comment for the
+  exact finding. The same technique against chat.deepseek.com was blocked outright by
+  an active AWS WAF bot-verification challenge, confirming that site specifically
+  really is unreachable from here by any available method, not just unverified by
+  omission. Confidence varies noticeably by site — see each adapter file's own header
+  comment (`content/claude-adapter.js`, `content/gemini-adapter.js`,
   `content/deepseek-adapter.js`, `content/copilot-adapter.js`) for the specific,
   honest reasoning behind each one, including one (Gemini) with a known structural
   risk — a possible closed Shadow DOM — that could mean it doesn't work *at all*, not
   just "might break later." **If you plan to actually rely on Claude, Gemini,
   DeepSeek, or Copilot support: test it yourself on a real page first**, the same way
-  chatgpt.com's support still needs a first real manual test too.
+  chatgpt.com's support still needs a first real manual test too — copilot.microsoft.com's
+  composer selector is now better-founded than the others, but "better-founded" is
+  still not "confirmed working end to end."
 - **Only the five sites listed in section 1 are covered — nothing else.** This
   extension does not intercept anything happening in a desktop app, a mobile app, or
   an AI feature embedded *inside* another product — for example, GitHub Copilot

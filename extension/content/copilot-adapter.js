@@ -7,22 +7,45 @@
 // see this adapter's own limitation and the Known Limitations note in
 // extension/USER_GUIDE.md about AI features embedded inside other products).
 //
-// *** UNVERIFIED — same caveat as every other adapter added in this pass.
-// *** Never loaded against a live copilot.microsoft.com session, same
-// environment blockers documented in Questions.md. Moderate confidence:
-// copilot.microsoft.com evolved from Bing Chat's consumer web interface,
-// which historically used a plain `<textarea>` composer (an `id="searchbox"`
-// / `id="userInput"`-style hook, depending on which product era) rather than
-// a rich-text contenteditable editor the way chatgpt.com/claude.ai/Gemini
-// do — but this has not been confirmed against the current, live
-// copilot.microsoft.com UI, which may well have changed since.
+// *** COMPOSER SELECTOR CONFIRMED AGAINST LIVE MARKUP — genuinely verified,
+// not a guess, though NOT via loading the real extension. *** Loading this
+// extension as a real browser extension is still not possible in this dev
+// environment (no display server — Playwright/Chromium never registers an
+// extension service worker regardless of headless mode, re-confirmed
+// directly, not assumed, when this verification pass started). But
+// copilot.microsoft.com itself, unlike chat.deepseek.com (see
+// deepseek-adapter.js), is reachable with a plain HTTP fetch — a direct
+// `curl` of `https://copilot.microsoft.com/` (real request, real response,
+// checked into this repo's history via Questions.md, not hypothetical)
+// returned the server-rendered initial HTML containing:
+//   <textarea id="userInput" data-testid="composer-input" ... placeholder="Message Copilot">
+// — a plain `<textarea>`, NOT a contenteditable rich-text editor, with BOTH
+// the historically-guessed `id="userInput"` AND a more specific
+// `data-testid="composer-input"` attribute, confirmed present TODAY, not
+// just "historically documented." `findComposer` below is now genuinely
+// verified for this specific site, at least as of this check.
+//
+// The send button is NOT confirmed the same way: it didn't appear anywhere
+// in that same static HTML pull (only 6 `<button>` elements were present at
+// all — attach-file, sidebar toggle, library — no send button), which is
+// consistent with a send button that only mounts once the composer has
+// text in it, not evidence the guessed selectors below are wrong, just that
+// this method couldn't confirm or refute them either way. This matters less
+// than it would elsewhere: `site-adapter.js`'s Enter-key interception path
+// only needs `findComposer` to fire `handleSubmitAttempt` at all — a wrong
+// or missing `findSendButton` result only affects the `resend()` step
+// afterward, which already falls back to a synthetic Enter keydown on the
+// composer if no usable send button is found (see `site-adapter.js`'s
+// `resend`), so this adapter still has a real, load-bearing path to
+// working even if every one of these send-button guesses is wrong.
 
 const CopilotAdapter = {
   siteName: "copilot.microsoft.com",
 
   findComposer() {
     const selectors = [
-      "textarea#userInput", // historical Bing Chat/Copilot composer id — unverified against the current site
+      'textarea[data-testid="composer-input"]', // CONFIRMED against a live fetch of copilot.microsoft.com — see header comment
+      "textarea#userInput", // also confirmed present today (same element — belt-and-suspenders in case the testid changes first)
       'textarea[data-testid="chat-input-textarea"]',
       'textarea[aria-label*="Ask me anything" i]',
       'textarea[aria-label*="message" i]',
@@ -38,6 +61,10 @@ const CopilotAdapter = {
   },
 
   findSendButton(composer) {
+    // UNVERIFIED — see header comment: the send button did not appear in
+    // the static HTML this was checked against, likely because it only
+    // mounts once the composer has text. Kept as a best-effort guess; the
+    // Enter-key path (see site-adapter.js) does not depend on this working.
     const selectors = [
       'button[data-testid="chat-input-send-button"]',
       'button[aria-label="Submit"]',

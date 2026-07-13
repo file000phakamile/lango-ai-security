@@ -19,8 +19,8 @@ This extension implements five sites:
 | chatgpt.com | **Verified working** — driven against a real, logged-in browser session (see Verification below) |
 | claude.ai | Implemented, **not yet verified** against a live page |
 | gemini.google.com | Implemented, **not yet verified** against a live page |
-| chat.deepseek.com | Implemented, **not yet verified** against a live page |
-| copilot.microsoft.com (consumer web chat — not GitHub Copilot) | Implemented, **not yet verified** against a live page |
+| chat.deepseek.com | Implemented, **not verified** — confirmed *unreachable* from this dev environment by two independent methods (headless-browser navigation and a plain HTTP fetch both blocked, the latter by an active AWS WAF challenge) — see `content/deepseek-adapter.js`'s header comment |
+| copilot.microsoft.com (consumer web chat — not GitHub Copilot) | Implemented, extension itself not verified, but the composer selector is **confirmed against a real fetch of the live page's HTML** (`textarea#userInput`, `data-testid="composer-input"`) — see `content/copilot-adapter.js`'s header comment |
 
 The code is structured with a site-adapter interface (`content/site-adapter.js`
 defines the contract; each `content/<site>-adapter.js` implements it for one site)
@@ -239,7 +239,7 @@ be fixed later:
   actually verified (see above).
 - **The four newer adapters (`claude-adapter.js`, `gemini-adapter.js`,
   `deepseek-adapter.js`, `copilot-adapter.js`) carry every limitation above, plus
-  they've never even had chatgpt.com's level of scrutiny — no live verification
+  they've never had chatgpt.com's level of scrutiny — no live *extension* verification
   attempt was possible for any of the five, but chatgpt.com's selectors are at least
   based on a long-stable, widely-documented convention (`#prompt-textarea`). The other
   four are comparatively fresher guesses, with meaningfully different confidence
@@ -247,7 +247,12 @@ be fixed later:
   they're all equally likely to work. `gemini-adapter.js` in particular calls out a
   specific structural risk (a possible closed Shadow DOM around Gemini's composer)
   that could mean it doesn't work at all, not just "might break later" the way the
-  others might.
+  others might. A later verification pass raised `copilot-adapter.js`'s confidence
+  specifically (its composer selector was confirmed against a real, direct fetch of
+  copilot.microsoft.com's current HTML — see that file's own header comment) and
+  confirmed `deepseek-adapter.js` remains not just unverified but genuinely
+  unreachable from this dev environment (blocked by an active AWS WAF challenge, not
+  merely "never tried") — see Questions.md for the full investigation.
 
 ## Local development
 
