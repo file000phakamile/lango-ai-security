@@ -153,7 +153,22 @@ const LangoSiteAdapter = (() => {
       case "blocked_low_confidence":
         // Do NOT resend, do NOT auto-retry. The user must edit the prompt
         // themselves and submit again.
-        showBanner(`Lango: blocked — ${result.reason_string}`, "blocked", { autoDismiss: false });
+        //
+        // Uses `result.user_message`, NOT `result.reason_string` — the
+        // backend deliberately splits these two (see
+        // backend/src/detection/plain_language.rs and
+        // ScanOutcome/ScanResponse's own doc comments). `reason_string` is
+        // full technical detail (entity_type names, confidence scores,
+        // which specific detector/rule fired) meant for a compliance
+        // officer reading the Audit Log later — showing it here, to the
+        // person who just typed the prompt, used to leak exactly that
+        // internal detail into this banner (e.g. "Scanner confidence below
+        // threshold (0.50 < 0.60) on detected next_of_kin [capitalized-run
+        // heuristic match, next-of-kin context], bank_account [primary
+        // pattern match]"). `user_message` is the plain-language
+        // counterpart built from the same match data, with none of that —
+        // this is the one this banner should always show.
+        showBanner(`Lango: blocked — ${result.user_message}`, "blocked", { autoDismiss: false });
         break;
 
       default:

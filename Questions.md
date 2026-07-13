@@ -605,3 +605,46 @@ All comfortably under the 50ms target — long-prompt p95 is ~415 microseconds, 
 120x under budget, not just "under" it. Measured on this dev machine, debug/bench
 profile per `cargo bench` defaults (release-optimized); not measured under concurrent
 load.
+
+## 18. Block-banner plain-language rewrite — investigated next_of_kin's block
+behavior first, confirmed it's deliberate, not a bug
+
+**Reported symptom**: the block banner shown to end users exposed raw internal
+detail — "Scanner confidence below threshold (0.50 < 0.60) on detected next_of_kin
+[capitalized-run heuristic match, next-of-kin context], bank_account [primary pattern
+match]. Fail-closed triggered."
+
+**Investigation, before touching anything**: asked to confirm whether `next_of_kin`
+was supposed to inherit `full_name`'s "low confidence redacts, doesn't block"
+tier-2 leniency, or whether it was accidentally left out. Checked
+`scan.rs`'s `is_leniency_eligible` closure directly: `entity_type == "full_name" &&
+sensitivity != SpecialCategoryHealth`. `next_of_kin`'s `entity_type` string is
+literally `"next_of_kin"`, not `"full_name"`, so it fails the first half of that
+check on its own — and even if it didn't, `next_of_kin`'s `sensitivity_class` is
+`SpecialCategoryHealth` (see `health_rules::sensitivity_class`), which fails the
+second half too. This is doubly, deliberately excluded, not an oversight: it's
+documented in `health_rules.rs`'s `SensitivityClass` doc comment, spelled out as
+Part 2's "hard rule" in `docs/HEALTH_MODULE.md` ("health data does not get the
+relaxed treatment names get"), and has its own dedicated regression test in
+`scan.rs`,
+`low_confidence_special_category_health_never_gets_review_flag_blocks_instead`,
+which exists specifically to lock in that a `next_of_kin` match at the same
+confidence that gives `full_name` the lenient treatment must still block. **Conclusion:
+not a bug — no tier-assignment change made.** The actual problem was purely the
+banner's wording, which is what got fixed (see the plain-language split in
+`backend/src/detection/plain_language.rs`, `ScanOutcome.user_message`, and
+`extension/content/site-adapter.js`'s `blocked_low_confidence` case).
+
+**Ordering in multi-entity plain-language messages** (judgment call): `plain_language::describe`
+joins phrases in the order their matches appear in the prompt (byte-offset order,
+since `matches` is sorted by `start` before any tier logic runs), not a fixed
+canonical order. E.g. "Next of kin: John Moyo... account 9988776655443..." produces
+"a contact name and a bank account number", not the reverse — whichever sensitive
+detail the user wrote first in their own message is named first in the response, an
+easy invariant for a user to intuitively check against without needing me to derive a
+canonical entity-type ordering.
+
+**Dedup is by resulting PHRASE, not by entity_type** (judgment call, documented in
+`plain_language.rs`): `next_of_kin` and `full_name` both mean "a name" to an end
+user, and if a future entity type is added that also maps to an existing phrase, it
+should collapse rather than list the same plain-language description twice.

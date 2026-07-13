@@ -60,9 +60,14 @@ site-specific honest confidence assessment — they are not all equally uncertai
      the audit log for asynchronous compliance review.
    - **`blocked_low_confidence`** — the scanner found something it isn't confident
      enough about to safely redact (near-zero confidence, or a low-confidence
-     *structured* entity type). Nothing is sent. You get a banner explaining why
-     (the backend's `reason_string`) and have to edit the prompt yourself and resubmit
-     — the extension does not retry automatically.
+     *structured* entity type). Nothing is sent. You get a banner explaining why in
+     plain language (the backend's `user_message` — e.g. "This message may contain a
+     bank account number we're not confident about"), NOT the backend's
+     `reason_string`, which is full technical detail (entity type names, confidence
+     scores, which detector matched) meant for the Audit Log, not this banner — see
+     `backend/src/detection/plain_language.rs` and `ScanResponse`'s own doc comment
+     for the split. You have to edit the prompt yourself and resubmit — the extension
+     does not retry automatically.
    - **Any error** (network failure, Lango backend unreachable, expired login) — fails
      **closed**: nothing is sent, and you get a clear "Lango is unreachable, prompt
      not sent" banner. This matches the fail-closed principle used everywhere else in

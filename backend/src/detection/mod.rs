@@ -27,6 +27,7 @@ pub mod entity_meta;
 pub mod fallback;
 pub mod health_rules;
 pub mod name_heuristic;
+pub mod plain_language;
 pub mod rules;
 pub mod scan;
 pub mod tokenize;

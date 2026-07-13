@@ -78,7 +78,22 @@ pub struct ScanResponse {
     pub risk_score: f32,
     pub redacted_prompt: String,
     pub decision: String,
+    /// Full technical detail (entity type names, confidence scores, which
+    /// specific rule/detector fired) — this is the audit-trail string,
+    /// meant for a compliance officer reviewing the Audit Log, NOT for
+    /// direct display to the person who submitted the prompt. Returned here
+    /// (as well as stored in `audit_log.reason_string`) because the
+    /// dashboard's Audit Log detail view reads it from this same shape via
+    /// the seed data / audit-log endpoint — see `user_message` below for
+    /// what a live caller (e.g. the browser extension) should actually show
+    /// the end user in the moment.
     pub reason_string: String,
+    /// Short, plain-language explanation of what kind of information was
+    /// involved and why — no entity_type strings, no confidence numbers, no
+    /// detector names (see `detection::plain_language`). This is what the
+    /// browser extension's banner should display; `reason_string` above is
+    /// the detailed counterpart for later audit review.
+    pub user_message: String,
     /// "standard" or "special_category_health" — see the health module's
     /// SensitivityClass axis (`detection::health_rules`). Independent from
     /// `decision`.

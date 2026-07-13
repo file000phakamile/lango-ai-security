@@ -74,6 +74,7 @@ pub async fn scan(
         redacted_prompt: outcome.redacted_prompt,
         decision: outcome.decision.to_string(),
         reason_string: outcome.reason_string,
+        user_message: outcome.user_message,
         sensitivity_class: outcome.sensitivity_class.to_string(),
     }))
 }

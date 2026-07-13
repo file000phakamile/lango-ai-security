@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 
-use super::{fallback, health_rules, name_heuristic, rules};
+use super::{fallback, health_rules, name_heuristic, plain_language, rules};
 use health_rules::SensitivityClass;
 
 /// No live AI provider is connected in v0.1 (see backend/.env.example /
@@ -143,7 +143,21 @@ pub struct ScanOutcome {
     pub risk_score: f32,
     pub redacted_prompt: String,
     pub decision: &'static str,
+    /// Full technical detail — entity type names, confidence scores, which
+    /// specific rule/detector fired (see `Match::rule_detail`). For the
+    /// audit log and a compliance officer reviewing a decision later. NEVER
+    /// shown directly to the person who submitted the prompt — see
+    /// `user_message` below for that.
     pub reason_string: String,
+    /// Short, plain-language explanation of what kind of information was
+    /// involved and why the scanner was cautious — no entity_type strings,
+    /// no confidence numbers, no detector/rule names (see
+    /// `plain_language.rs`). This is what the browser extension shows in
+    /// its banner to the person who just typed the prompt; `reason_string`
+    /// above is the detailed counterpart for whoever audits the decision
+    /// later. The split is deliberate: two different readers, two different
+    /// levels of detail, from the same underlying match data.
+    pub user_message: String,
     /// "standard" or "special_category_health" — see
     /// `health_rules::SensitivityClass`. A NEW, independent axis from
     /// `decision`/confidence: this reflects the sensitivity of the entity
@@ -286,6 +300,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
             decision: "cleared_no_entities",
             reason_string: "No sensitive entities detected. Prompt forwarded unmodified."
                 .to_string(),
+            user_message: "No sensitive information was found in this message.".to_string(),
             sensitivity_class: SensitivityClass::Standard.as_str(),
         };
     }
@@ -333,11 +348,16 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
     // unconditionally — no middle band for these types (see
     // NAME_LOW_CONFIDENCE_FLOOR's doc comment for why).
     if min_structured_confidence < CONFIDENCE_THRESHOLD {
-        let low_confidence_types: Vec<String> = matches
+        let low_confidence_matches: Vec<&Match> = matches
             .iter()
             .filter(|m| !is_leniency_eligible(m.entity_type, m.sensitivity) && m.confidence < CONFIDENCE_THRESHOLD)
+            .collect();
+        let low_confidence_types: Vec<String> = low_confidence_matches
+            .iter()
             .map(|m| format!("{} [{}]", m.entity_type, m.rule_detail))
             .collect();
+        let low_confidence_entity_types: Vec<&str> =
+            low_confidence_matches.iter().map(|m| m.entity_type).collect();
         return blocked_outcome(
             entities_detected,
             risk_score,
@@ -345,6 +365,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
             min_structured_confidence,
             CONFIDENCE_THRESHOLD,
             &low_confidence_types,
+            &low_confidence_entity_types,
             sensitivity_class,
         );
     }
@@ -359,6 +380,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
             min_name_confidence,
             NAME_LOW_CONFIDENCE_FLOOR,
             &["full_name (capitalized-run heuristic match)".to_string()],
+            &["full_name"],
             sensitivity_class,
         );
     }
@@ -366,7 +388,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
     // Everything from here on forwards a redacted prompt — the redaction
     // step itself is identical whether the result ends up
     // `redacted_and_forwarded` or `redacted_low_confidence_review`; only the
-    // decision label and reason_string differ.
+    // decision label and reason_string/user_message differ.
     let redacted = redact(prompt, &matches);
 
     // Tier 2: a real but low-confidence name match (0.30-0.60), and nothing
@@ -383,20 +405,26 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
                 "Low-confidence name match ({:.2}) redacted automatically - flagged for compliance review",
                 min_name_confidence
             ),
+            user_message: "This message may have contained a person's name we weren't fully \
+                confident about. It was redacted and sent, and flagged for a compliance review."
+                .to_string(),
             sensitivity_class,
         };
     }
 
     // Tier 1: everything trusted. Per-match rule detail (point 7 of the
-    // detection-engine task) so the audit trail names WHICH rule fired for
-    // each entity, not just the entity type — e.g. distinguishing a
-    // primary-pattern national_id match from a probable_identifier caught
-    // only by the generic fallback.
+    // detection-engine task) so the AUDIT TRAIL (reason_string) names WHICH
+    // rule fired for each entity, not just the entity type — e.g.
+    // distinguishing a primary-pattern national_id match from a
+    // probable_identifier caught only by the generic fallback. user_message
+    // stays plain-language, built from the same matches via
+    // `plain_language::describe`.
     let detail_join = matches
         .iter()
         .map(|m| format!("{} [{}]", m.entity_type, m.rule_detail))
         .collect::<Vec<_>>()
         .join("; ");
+    let matched_entity_types: Vec<&str> = matches.iter().map(|m| m.entity_type).collect();
     ScanOutcome {
         entities_detected: entities_detected.clone(),
         risk_score,
@@ -405,6 +433,11 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
         reason_string: format!(
             "Blocked raw prompt: {}, replaced with placeholder tokens.",
             detail_join
+        ),
+        user_message: format!(
+            "This message contained {}, which {} automatically redacted before sending.",
+            plain_language::describe(&matched_entity_types),
+            if plain_language::unique_phrase_count(&matched_entity_types) == 1 { "was" } else { "were" },
         ),
         sensitivity_class,
     }
@@ -420,7 +453,8 @@ fn blocked_outcome(
     prompt: &str,
     min_confidence: f32,
     threshold: f32,
-    low_confidence_types: &[String],
+    low_confidence_detail: &[String],
+    low_confidence_entity_types: &[&str],
     sensitivity_class: &'static str,
 ) -> ScanOutcome {
     ScanOutcome {
@@ -429,11 +463,22 @@ fn blocked_outcome(
         redacted_prompt: prompt.to_string(),
         decision: "blocked_low_confidence",
         sensitivity_class,
+        // Full technical detail — entity types, confidence numbers, which
+        // rule matched — for the audit log only. See `user_message` below
+        // for what the person who submitted the prompt actually sees.
         reason_string: format!(
             "Scanner confidence below threshold ({:.2} < {:.2}) on detected {}. Fail-closed triggered.",
             min_confidence,
             threshold,
-            low_confidence_types.join(", ")
+            low_confidence_detail.join(", ")
+        ),
+        // Plain language, no entity_type strings, no confidence math, no
+        // detector names — see plain_language.rs's own doc comment for why
+        // this split exists.
+        user_message: format!(
+            "This message may contain {} we're not confident about. Please review and remove or \
+                rephrase it before sending.",
+            plain_language::describe(low_confidence_entity_types),
         ),
     }
 }
@@ -864,5 +909,82 @@ mod tests {
         let resolved = resolve_overlaps(candidates);
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].entity_type, "medical_aid_number");
+    }
+
+    // --- user_message: plain-language banner text, split from reason_string
+    // (the technical audit-trail detail) — see plain_language.rs. ----------
+
+    #[test]
+    fn blocked_single_entity_user_message_is_plain_language() {
+        // bank_account alone, naturally low-confidence (0.5) — a single-
+        // entity block, the simple case.
+        let outcome = scan_prompt("Please refund via account 9988776655443 once approved.");
+        assert_eq!(outcome.decision, "blocked_low_confidence");
+        assert_eq!(
+            outcome.user_message,
+            "This message may contain a bank account number we're not confident about. \
+                Please review and remove or rephrase it before sending."
+        );
+        // The technical detail must still be in reason_string, unchanged —
+        // just never in user_message.
+        assert!(outcome.reason_string.contains("bank_account"));
+        assert!(outcome.reason_string.contains("0.50"));
+        assert!(!outcome.user_message.contains("bank_account"));
+        assert!(!outcome.user_message.contains("0.50"));
+        assert!(!outcome.user_message.to_lowercase().contains("confidence ("));
+    }
+
+    #[test]
+    fn blocked_multi_entity_user_message_lists_plain_phrases_not_raw_types() {
+        // next_of_kin (special_category_health, so it can never reach the
+        // tier-2 leniency band — see
+        // low_confidence_special_category_health_never_gets_review_flag_blocks_instead
+        // above) alongside a low-confidence bank_account match — both
+        // structured-tier, both below threshold, blocking together.
+        let outcome = scan_prompt(
+            "Next of kin: John Moyo. Please refund via account 9988776655443 once approved.",
+        );
+        assert_eq!(outcome.decision, "blocked_low_confidence");
+        assert!(outcome.entities_detected.contains(&"next_of_kin".to_string()));
+        assert!(outcome.entities_detected.contains(&"bank_account".to_string()));
+        // Order follows text position (next_of_kin's "John Moyo" appears
+        // before bank_account's digits in this prompt) — plain_language::describe
+        // preserves first-seen order rather than imposing a fixed ordering.
+        assert_eq!(
+            outcome.user_message,
+            "This message may contain a contact name and a bank account number we're not \
+                confident about. Please review and remove or rephrase it before sending."
+        );
+        // Neither raw entity_type string nor rule_detail/confidence-number
+        // detail leaks into the plain-language message.
+        assert!(!outcome.user_message.contains("next_of_kin"));
+        assert!(!outcome.user_message.contains("bank_account"));
+        assert!(!outcome.user_message.contains("heuristic"));
+        assert!(!outcome.user_message.contains("pattern match"));
+        // The audit-trail reason_string keeps the full technical detail,
+        // completely unaffected by this change.
+        assert!(outcome.reason_string.contains("next_of_kin"));
+        assert!(outcome.reason_string.contains("bank_account"));
+    }
+
+    #[test]
+    fn redacted_and_forwarded_user_message_is_plain_language() {
+        let outcome = scan_prompt("Please verify national ID 63-123456A23 for admission.");
+        assert_eq!(outcome.decision, "redacted_and_forwarded");
+        assert_eq!(
+            outcome.user_message,
+            "This message contained a national ID number, which was automatically redacted \
+                before sending."
+        );
+        assert!(!outcome.user_message.contains("national_id"));
+    }
+
+    #[test]
+    fn redacted_low_confidence_review_user_message_is_plain_language() {
+        let outcome = scan_prompt("Dear John Moyo, please review the attached document.");
+        assert_eq!(outcome.decision, "redacted_low_confidence_review");
+        assert!(!outcome.user_message.contains("full_name"));
+        assert!(!outcome.user_message.contains("0.55"));
+        assert!(outcome.user_message.to_lowercase().contains("name"));
     }
 }

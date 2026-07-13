@@ -151,10 +151,14 @@ heads-up that this one is going into a review queue.**
 9988776655443 once approved." A bank account number is a *structured* entity type
 (unlike a name), and Lango's design deliberately treats any low-confidence match on a
 structured entity as too risky to guess about — so this **blocks** rather than
-redacting-and-sending. You'll see a **red** banner with the specific reason spelled
-out — something like "Lango: blocked — Scanner confidence below threshold (0.50 <
-0.60) on detected bank_account. Fail-closed triggered." — and **nothing is sent
-anywhere**. This banner does not auto-dismiss; you have to edit your prompt yourself
+redacting-and-sending. You'll see a **red** banner in plain language, naming what kind
+of information was involved without exposing internal detector names or confidence
+scores — something like "Lango: blocked — This message may contain a bank account
+number we're not confident about. Please review and remove or rephrase it before
+sending." — and **nothing is sent anywhere**. (The full technical detail — exact
+entity type, confidence score, which detector matched — is still recorded for a
+compliance officer reviewing the Audit Log later; it's just not what shows up in this
+banner.) This banner does not auto-dismiss; you have to edit your prompt yourself
 (e.g. remove or rephrase the account number) and submit again. Lango never retries
 this one automatically on your behalf.
 
