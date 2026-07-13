@@ -11,7 +11,7 @@ pub async fn get_summary(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
 ) -> AppResult<Json<CommandCenterSummary>> {
-    require_role(&claims, &["compliance", "admin"])?;
+    require_role(&claims, &["compliance_admin"])?;
 
     let sessions_scanned_today: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM audit_log WHERE \"timestamp\" >= date_trunc('day', now())",

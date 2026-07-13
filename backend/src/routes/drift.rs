@@ -11,7 +11,7 @@ pub async fn get_drift(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
 ) -> AppResult<Json<DriftResponse>> {
-    require_role(&claims, &["compliance", "admin"])?;
+    require_role(&claims, &["compliance_admin"])?;
 
     let rows: Vec<DriftSnapshotRow> = sqlx::query_as::<_, DriftSnapshotRow>(
         "SELECT week_start, psi_score, kl_divergence_score FROM drift_snapshots ORDER BY week_start ASC",

@@ -19,7 +19,13 @@ pub async fn get_audit_log(
     AuthUser(claims): AuthUser,
     Query(query): Query<AuditLogQuery>,
 ) -> AppResult<Json<AuditLogPage>> {
-    require_role(&claims, &["compliance", "admin"])?;
+    // Both dashboard-facing roles can read the audit log — 'staff' cannot
+    // (see the multi-tenancy task: "staff can only scan prompts... they see
+    // nothing in the dashboard"). `department_reviewer` is further scoped to
+    // their own department by the query itself, below (see Part 3 of the
+    // multi-tenancy task — org/department scoping is enforced in the query,
+    // not just at this role gate).
+    require_role(&claims, &["compliance_admin", "department_reviewer"])?;
 
     if let Some(d) = &query.decision {
         if !VALID_DECISIONS.contains(&d.as_str()) {

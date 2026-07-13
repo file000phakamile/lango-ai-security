@@ -99,10 +99,13 @@ where
     }
 }
 
-/// Require the caller's role to be one of `allowed`. Used for the read-only
-/// dashboard endpoints (audit log, fairness, drift, security events, command
-/// center) which should only be visible to compliance/admin roles, not every
-/// staff account that can submit a scan.
+/// Require the caller's role to be one of `allowed`. Three roles exist:
+/// `staff` (can only call `/api/scan`, no dashboard access at all),
+/// `department_reviewer` (dashboard access scoped to their own department —
+/// see `routes::audit_log`'s query), and `compliance_admin` (dashboard
+/// access across their whole organisation). Every dashboard-reading
+/// endpoint calls this; `/api/scan` deliberately does not, since every role
+/// is allowed to scan.
 pub fn require_role(claims: &Claims, allowed: &[&str]) -> Result<(), AppError> {
     if allowed.contains(&claims.role.as_str()) {
         Ok(())

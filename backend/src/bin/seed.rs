@@ -47,9 +47,19 @@ struct SeedUser {
 /// The first two accounts are the demo credentials the frontend logs in
 /// with when NEXT_PUBLIC_USE_MOCK_DATA is not set to "true" (see
 /// lib/lango/api-client.ts). Documented in README.md and backend/.env.example.
+/// `compliance@lango.demo` is `compliance_admin` (was `compliance` before
+/// the multi-tenancy role change, migration 0011 — same effective access
+/// tier, just the new role name; see that migration's own comment and
+/// Questions.md's CRITICAL CONSTRAINT note: this exact account's dashboard
+/// access must not change).
 const SEED_USERS: &[SeedUser] = &[
-    SeedUser { email: "compliance@lango.demo", password: "LangoDemo123!", department: "Credit Risk", role: "compliance" },
-    SeedUser { email: "admin@lango.demo", password: "LangoDemo123!", department: "Legal Affairs", role: "admin" },
+    SeedUser { email: "compliance@lango.demo", password: "LangoDemo123!", department: "Credit Risk", role: "compliance_admin" },
+    SeedUser { email: "admin@lango.demo", password: "LangoDemo123!", department: "Legal Affairs", role: "compliance_admin" },
+    // One department_reviewer per a couple of departments, so the new
+    // department-scoped role has real seeded coverage to demonstrate/test
+    // against, not just staff/compliance_admin.
+    SeedUser { email: "reviewer1@lango.demo", password: "LangoDemo123!", department: "Credit Risk", role: "department_reviewer" },
+    SeedUser { email: "reviewer2@lango.demo", password: "LangoDemo123!", department: "Patient Records", role: "department_reviewer" },
     SeedUser { email: "staff1@lango.demo", password: "LangoDemo123!", department: "Credit Risk", role: "staff" },
     SeedUser { email: "staff2@lango.demo", password: "LangoDemo123!", department: "Credit Risk", role: "staff" },
     SeedUser { email: "staff3@lango.demo", password: "LangoDemo123!", department: "Claims Processing", role: "staff" },
@@ -562,8 +572,9 @@ async fn main() {
     println!();
     println!("=================================================================");
     println!("Seed complete. Demo login credentials (also in README.md):");
-    println!("  compliance@lango.demo / LangoDemo123!  (role: compliance)");
-    println!("  admin@lango.demo      / LangoDemo123!  (role: admin)");
+    println!("  compliance@lango.demo / LangoDemo123!  (role: compliance_admin)");
+    println!("  admin@lango.demo      / LangoDemo123!  (role: compliance_admin)");
+    println!("  reviewer1@lango.demo  / LangoDemo123!  (role: department_reviewer, Credit Risk)");
     println!("=================================================================");
 }
 

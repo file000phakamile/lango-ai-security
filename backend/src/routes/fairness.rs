@@ -32,7 +32,7 @@ pub async fn get_fairness(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
 ) -> AppResult<Json<FairnessResponse>> {
-    require_role(&claims, &["compliance", "admin"])?;
+    require_role(&claims, &["compliance_admin"])?;
 
     let department_parity: Vec<ParityEntry> = sqlx::query_as::<_, ParityEntry>(
         r#"

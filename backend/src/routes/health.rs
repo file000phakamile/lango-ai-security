@@ -39,7 +39,7 @@ pub async fn get_health_summary(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
 ) -> AppResult<Json<HealthSummaryResponse>> {
-    require_role(&claims, &["compliance", "admin"])?;
+    require_role(&claims, &["compliance_admin"])?;
 
     let standard_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM audit_log WHERE sensitivity_class = 'standard'")

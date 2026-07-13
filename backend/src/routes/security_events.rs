@@ -11,7 +11,7 @@ pub async fn get_security_events(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
 ) -> AppResult<Json<SecurityEventsResponse>> {
-    require_role(&claims, &["compliance", "admin"])?;
+    require_role(&claims, &["compliance_admin"])?;
 
     let rows: Vec<SecurityEventRow> = sqlx::query_as::<_, SecurityEventRow>(
         "SELECT event_type, detail, created_at FROM security_events ORDER BY created_at DESC LIMIT 20",
