@@ -21,7 +21,15 @@ export type EntityType =
   | "medication_name"
   | "medical_aid_number"
   | "lab_result_value"
-  | "next_of_kin";
+  | "next_of_kin"
+  // Generic structured-identifier fallback (see
+  // backend/src/detection/fallback.rs) — emitted when a token looks
+  // ID-shaped (mixed letters/digits, 6-14 chars) near a recognized
+  // identifying keyword, but doesn't match any specific entity type's
+  // known format. Its actual sensitivity (standard vs.
+  // special_category_health) is inferred per-match from the nearby
+  // keyword, not fixed by this type name alone.
+  | "probable_identifier";
 
 export type Decision =
   | "cleared_no_entities"

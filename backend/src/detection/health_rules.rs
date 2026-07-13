@@ -76,6 +76,16 @@ pub fn sensitivity_class(entity_type: &str) -> SensitivityClass {
     match entity_type {
         "diagnosis_code" | "medication_name" | "medical_aid_number" | "lab_result_value"
         | "next_of_kin" => SensitivityClass::SpecialCategoryHealth,
+        // "patient_context" is NOT a real, independently-detectable entity
+        // type — it never appears as a match's `entity_type` in
+        // `entities_detected`. It exists purely as a keyword-source tag
+        // consumed by `fallback.rs` (see `entity_meta.rs`'s doc comment on
+        // the group of the same name) so the generic structured-identifier
+        // fallback can implement the task's own worked example ("proximity
+        // to 'Patient' implies special_category_health") without touching
+        // `medical_record_no`'s separately-documented Standard
+        // classification below.
+        "patient_context" => SensitivityClass::SpecialCategoryHealth,
         // Every other entity type — the five new ones handled above are the
         // ONLY special-category types; everything else (including future
         // types someone forgets to list here) defaults to Standard rather
@@ -515,5 +525,87 @@ mod tests {
         let start = text.find("Rutendo Gumbo").unwrap();
         let end = start + "Rutendo Gumbo".len();
         assert!(!is_next_of_kin_context(text, start, end));
+    }
+
+    // --- diagnosis_code: 2 more positive formats, 1 edge case, negative
+    // already covered above (ignores_shape_valid_code_not_in_dictionary) --
+
+    #[test]
+    fn detects_diagnosis_code_subcategory_format() {
+        let matches = detect_diagnosis_codes("Assessment: E11.9, continue current management.");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].entity_type, "diagnosis_code");
+    }
+
+    #[test]
+    fn detects_another_dictionary_diagnosis_code() {
+        let matches = detect_diagnosis_codes("History of I10, on current antihypertensives.");
+        assert_eq!(matches.len(), 1);
+    }
+
+    #[test]
+    fn diagnosis_code_edge_case_lowercase_is_not_matched() {
+        // A real limitation, not a false negative this task is meant to
+        // fix: ICD10_SHAPE_RE has no (?i) flag, so a lowercased code is
+        // silently missed. Locked in here so a future change to this
+        // pattern is a deliberate decision, not an accident.
+        let matches = detect_diagnosis_codes("assessment: b20, continue art.");
+        assert!(matches.is_empty());
+    }
+
+    // --- medication_name: 1 more positive, 1 edge case, 1 negative --------
+
+    #[test]
+    fn detects_another_dictionary_medication() {
+        let matches = detect_medications("Give Paracetamol for the fever.");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].entity_type, "medication_name");
+    }
+
+    #[test]
+    fn medication_name_edge_case_all_uppercase_still_matches() {
+        let matches = detect_medications("PRESCRIBED: COTRIMOXAZOLE daily.");
+        assert_eq!(matches.len(), 1);
+    }
+
+    #[test]
+    fn does_not_flag_an_unlisted_medication_name() {
+        // Plausible-looking but not in the illustrative dictionary — must
+        // be silently missed, not guessed at (same honesty standard as
+        // diagnosis codes).
+        let matches = detect_medications("Prescribed Aspirinol twice daily.");
+        assert!(matches.is_empty());
+    }
+
+    // --- medical_aid_number: 1 edge case, 1 negative (shape-only, no
+    // keyword needed for THIS detector, unlike the generic fallback) -------
+
+    #[test]
+    fn medical_aid_number_edge_case_minimum_length_matches() {
+        let matches = detect_medical_aid_numbers("Scheme ref AB123456 on file.");
+        assert_eq!(matches.len(), 1);
+    }
+
+    #[test]
+    fn medical_aid_number_negative_pure_digits_do_not_match() {
+        // No letter prefix at all — must not match the letters+digits shape.
+        let matches = detect_medical_aid_numbers("Reference 123456789 on file.");
+        assert!(matches.is_empty());
+    }
+
+    // --- lab_result_value: 2 more positive test-name keywords -------------
+
+    #[test]
+    fn detects_lab_value_for_viral_load() {
+        let matches = detect_lab_result_values("Viral load 45 copies/mL, undetectable range.");
+        assert_eq!(matches.len(), 1);
+        assert!("Viral load 45 copies/mL, undetectable range."[matches[0].start..matches[0].end]
+            .contains("45"));
+    }
+
+    #[test]
+    fn detects_lab_value_for_hba1c_with_percent_unit() {
+        let matches = detect_lab_result_values("HbA1c 7.2%, review medication.");
+        assert_eq!(matches.len(), 1);
     }
 }

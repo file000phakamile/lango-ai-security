@@ -496,3 +496,112 @@ changes that reasoning.
 Both `extension/USER_GUIDE.md`'s Caveats section and each adapter file's own header
 comment repeat this same honest framing — this is not a case of softening the message
 in one place and stating it plainly in another.
+
+## 17. Detection-engine structural fix ("12345678ACD" gap) — tokenizer,
+generic fallback, and overlap resolution
+
+**The bug**: "Mark Dlomo Patient ID: 12345678ACD" redacted the name but silently
+missed the ID, because every detector before this task was exactly one fixed regex
+per entity type with no fallback for format variance — "12345678ACD" matched neither
+`national_id`'s dash-shaped pattern nor `medical_aid_number`'s letters-then-digits
+shape. Fixed structurally (not with one more regex) via a new shared tokenizer
+(`tokenize.rs`), a keyword registry (`entity_meta.rs`), and a generic
+structured-identifier fallback detector (`fallback.rs`) that runs alongside every
+existing detector. See `backend/src/detection/fallback.rs`'s own module doc comment
+for the full design; the judgment calls below are the ones the task explicitly asked
+to be logged rather than blocked on.
+
+**Keyword window = 3 tokens either side.** Narrow enough that a keyword three
+sentences away can't reach across unrelated text; wide enough to cover "Patient ID:
+X" (1-token gap), "Patient ID number X" (2-3 token gap with a filler word), and "ID X
+(confirmed)" (adjacent). Not derived from a corpus — the middle of a range I judged
+reasonable by hand-testing the phrasings above. Documented in `fallback.rs`.
+
+**Fallback confidence = 0.70.** Deliberately between the existing UNGATED generic
+patterns (`bank_account`/`medical_aid_number` at 0.50-0.55, no keyword requirement at
+all) and a real validated-format primary pattern (0.85+). Keyword-gating is a real
+signal, so this clears `CONFIDENCE_THRESHOLD` (0.60) and can redact-and-forward a
+genuinely unclaimed span on its own — required for the bug-report prompt to actually
+redact rather than block. It stays below every primary pattern because the token's
+*format* is still unverified, unlike e.g. Luhn on a credit card.
+
+**Ambiguous-sensitivity default = Standard.** When multiple keyword occurrences tie
+for nearest and disagree on sensitivity, the fallback defaults to `Standard` rather
+than guessing toward the more sensitive class — consistent with
+`health_rules::sensitivity_class`'s existing "unknown defaults to Standard" convention
+(see that function's own doc comment) rather than inventing a new "guess toward
+caution" rule for just this one path.
+
+**"Patient" implies special_category_health — via a new `patient_context`
+keyword-source tag, not by reclassifying `medical_record_no`.** The task's own worked
+example says proximity to "Patient" should imply special-category health. But
+`health_rules.rs` already has an explicit, deliberate, previously-documented decision
+that `medical_record_no` itself stays `Standard` (a hospital record number is
+"health-adjacent" but was scoped out of the original five special-category types).
+Tagging "Patient ID"/"Patient Number" as sourced from `medical_record_no` would have
+silently pulled that pattern's sensitivity along with it, quietly overturning a prior
+deliberate decision as a side effect of an unrelated task. Instead, added
+`patient_context` — a keyword-source tag that is NEVER emitted as a real
+`entity_type`, only consulted by the fallback's sensitivity inference — mapped to
+`SpecialCategoryHealth` in `health_rules::sensitivity_class`. `medical_record_no`'s
+own classification is untouched.
+
+**Overlap resolution: the fallback always loses to a specific detector on the same
+span, even at lower confidence — a deliberate exception to a literal "highest
+confidence wins."** Point 4 of the task says the highest-confidence match should win
+a contested span. Taken completely literally, this broke an existing test:
+`medical_aid_number_generic_low_confidence_pattern_fails_closed`. That pattern is
+deliberately low-confidence (0.55) specifically so an unverified format fails closed
+by default — but its own keyword ("medical aid number") very commonly sits right next
+to its match in ordinary phrasing, so a literal numeric comparison would let the
+fallback's 0.70 systematically outrank that detector's deliberate tuning on the common
+case, not just the gap case the fallback exists for. Since the task's verification
+section explicitly requires ALL existing tests to keep passing, and since I judged
+that requirement should win when it conflicts with a literal reading of a design
+point, I implemented overlap resolution as: highest-confidence-wins WITHIN the
+non-fallback detectors, but the fallback is always sorted last regardless of its own
+numeric confidence. Documented in `scan.rs`'s `resolve_overlaps` and covered by both
+an integration test (`medical_aid_number_fallback_does_not_override_the_...`) and an
+isolated unit test on the resolution function itself
+(`resolve_overlaps_fallback_always_loses_to_a_specific_detector_regardless_of_confidence`).
+
+**New entity type, external-facing (per point 8's disclosure requirement)**: the
+fallback emits `"probable_identifier"` as its `entity_type` — a genuinely new possible
+value in the API's `entities_detected` array, not previously possible. Checked: no
+frontend or extension code branches on specific `entity_type` string values today (the
+dashboard is driven by `lib/lango/mock-data.ts`, not the live API; the extension only
+reads `entities_detected.length`), so nothing breaks. Added it to
+`lib/lango/types.ts`'s `EntityType` union for documentation accuracy. Everything else
+(decision values, ScanResponse shape, existing entity type names) is unchanged.
+
+**Discovered, not fixed (out of scope): `PHONE_RE`'s international `+263` branch is
+effectively dead.** While broadening the test corpus (task point 6), found that
+`\b(?:\+263|0)7...` can only match the `+263` alternative if the character immediately
+before `+` is itself a word character — but `+` is realistically always preceded by
+whitespace, punctuation, or the start of the prompt, none of which are word
+characters, so `\b` never matches there in normal usage. This is a separate,
+pre-existing regex bug, not the format-variance problem this task's fallback fixes.
+Left unfixed (documented as a locked-in known limitation in
+`rules.rs::phone_number_international_plus_prefix_is_a_known_unreached_branch`) since
+touching unrelated existing patterns was explicitly out of this task's scope
+("not by adding one more regex", and this isn't even that — it's an unrelated bug in
+an unrelated branch of an existing pattern). Worth a follow-up task on its own.
+
+**Catastrophic-backtracking audit**: none found, and structurally none is possible —
+Rust's `regex` crate is a guaranteed-linear-time engine (Thompson NFA / lazy DFA), not
+a backtracking search, so "catastrophic backtracking" can't occur regardless of
+pattern shape. See `backend/src/detection/mod.rs`'s module doc comment for the full
+explanation. Every pattern was still manually checked for sane, bounded quantifiers as
+basic hygiene.
+
+**Benchmark p95 numbers (real measured, `cargo bench --bench scan_bench`, 100
+samples per case, p95 computed from criterion's raw per-sample iters/times, not just
+its default mean-based summary)**:
+- short (~20 words): mean 12.98us, p95 13.83us, p99 14.38us
+- medium (~100 words): mean 90.32us, p95 100.14us, p99 106.58us
+- long (~500 words): mean 366.16us, p95 415.14us, p99 521.30us
+
+All comfortably under the 50ms target — long-prompt p95 is ~415 microseconds, about
+120x under budget, not just "under" it. Measured on this dev machine, debug/bench
+profile per `cargo bench` defaults (release-optimized); not measured under concurrent
+load.

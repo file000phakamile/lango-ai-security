@@ -7,10 +7,19 @@ use regex::Regex;
 /// match from a loose generic pattern is not, and blocks rather than
 /// forwards. See docs/ARCHITECTURE.md for the full honesty note on what
 /// these patterns can and can't actually guarantee.
+///
+/// `checksum`, when present, is a real validation function run against the
+/// matched text on top of the format match — currently only credit_card's
+/// Luhn check (`luhn_check` below). A format match that fails its checksum
+/// is dropped by `scan.rs` rather than reported with inflated confidence.
+/// This field exists so `scan.rs`'s matching loop can treat every rule
+/// uniformly (one loop, one optional checksum call) instead of special-
+/// casing `entity_type == "credit_card"` by string comparison.
 pub struct Rule {
     pub entity_type: &'static str,
     pub regex: &'static Lazy<Regex>,
     pub confidence: f32,
+    pub checksum: Option<fn(&str) -> bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -119,37 +128,44 @@ pub fn regex_rules() -> Vec<Rule> {
         Rule {
             entity_type: "credit_card",
             regex: &CREDIT_CARD_RE,
-            confidence: 0.97, // additionally gated by a real Luhn check in scan.rs
+            confidence: 0.97, // additionally gated by a real Luhn check, via `checksum` below
+            checksum: Some(luhn_check),
         },
         Rule {
             entity_type: "national_id",
             regex: &NATIONAL_ID_RE,
             confidence: 0.85,
+            checksum: None,
         },
         Rule {
             entity_type: "phone_number",
             regex: &PHONE_RE,
             confidence: 0.9,
+            checksum: None,
         },
         Rule {
             entity_type: "api_key",
             regex: &API_KEY_SPECIFIC_RE,
             confidence: 0.95,
+            checksum: None,
         },
         Rule {
             entity_type: "medical_record_no",
             regex: &MEDICAL_RECORD_RE,
             confidence: 0.75,
+            checksum: None,
         },
         Rule {
             entity_type: "bank_account",
             regex: &BANK_ACCOUNT_RE,
             confidence: 0.5, // generic digit run — genuinely low confidence, by design
+            checksum: None,
         },
         Rule {
             entity_type: "api_key",
             regex: &API_KEY_GENERIC_RE,
             confidence: 0.45, // generic fallback — genuinely low confidence, by design
+            checksum: None,
         },
     ]
 }
@@ -179,4 +195,195 @@ pub fn luhn_check(digits: &str) -> bool {
         })
         .sum();
     sum % 10 == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rule_for(entity_type: &str) -> Rule {
+        regex_rules()
+            .into_iter()
+            .find(|r| r.entity_type == entity_type)
+            .unwrap()
+    }
+
+    // --- national_id: 3 positive formats, 1 edge case, 1 negative --------
+
+    #[test]
+    fn national_id_matches_plausible_formats() {
+        let rule = rule_for("national_id");
+        assert!(rule.regex.is_match("63-123456A23")); // dashed, 6-digit serial
+        assert!(rule.regex.is_match("71-6543210B12")); // dashed, 7-digit serial
+        assert!(rule.regex.is_match("58234567C45")); // no dash at all
+    }
+
+    #[test]
+    fn national_id_edge_case_lowercase_check_letter_still_matches() {
+        // The pattern's character class is case-insensitive by construction
+        // ([A-Za-z]), not a documented guarantee about real ID cards, but
+        // worth locking in since it's an easy regression to introduce.
+        let rule = rule_for("national_id");
+        assert!(rule.regex.is_match("63-123456a23"));
+    }
+
+    #[test]
+    fn national_id_negative_bare_digits_do_not_match() {
+        // A random 8-digit number with no check letter or district suffix
+        // shape must not be mistaken for a national ID.
+        let rule = rule_for("national_id");
+        assert!(!rule.regex.is_match("12345678"));
+    }
+
+    // --- bank_account: 2 formats (10-digit and 13-digit boundary), 1 edge
+    // case, 1 negative ------------------------------------------------------
+
+    #[test]
+    fn bank_account_matches_both_boundary_lengths() {
+        let rule = rule_for("bank_account");
+        assert!(rule.regex.is_match("1234567890")); // 10 digits, the floor
+        assert!(rule.regex.is_match("9988776655443")); // 13 digits, the ceiling
+    }
+
+    #[test]
+    fn bank_account_edge_case_nine_digits_does_not_match() {
+        let rule = rule_for("bank_account");
+        assert!(!rule.regex.is_match("123456789")); // one below the floor
+    }
+
+    #[test]
+    fn bank_account_negative_fourteen_contiguous_digits_does_not_match() {
+        // \b\d{10,13}\b requires a WORD BOUNDARY on both sides of the run —
+        // a contiguous 14-digit run has no internal boundary, so nothing
+        // inside it can match either. This is a real, deliberate
+        // consequence of the pattern's word-boundary anchoring, not a gap
+        // this task is trying to close (that run isn't a bank account
+        // format this codebase claims to support).
+        let rule = rule_for("bank_account");
+        assert!(!rule.regex.is_match("12345678901234"));
+    }
+
+    // --- phone_number: 2 formats, 1 edge case, 1 negative -----------------
+
+    #[test]
+    fn phone_number_matches_local_format() {
+        let rule = rule_for("phone_number");
+        assert!(rule.regex.is_match("0771234567")); // local, Econet prefix
+    }
+
+    #[test]
+    fn phone_number_edge_case_all_three_mobile_prefixes_match() {
+        let rule = rule_for("phone_number");
+        assert!(rule.regex.is_match("0711234567")); // NetOne
+        assert!(rule.regex.is_match("0731234567")); // Telecel
+    }
+
+    #[test]
+    fn phone_number_international_plus_prefix_is_a_known_unreached_branch() {
+        // Discovered while broadening this test corpus, not introduced by
+        // this task: `\b` immediately before the `+263` alternative can
+        // only match where the character preceding `+` is itself a word
+        // character (`\b` requires a word/non-word transition on either
+        // side) — but `+` is realistically always preceded by whitespace,
+        // punctuation, or the start of the prompt, none of which are word
+        // characters, so this branch never actually fires in normal usage.
+        // Fixing PHONE_RE itself is out of scope here — this is a separate,
+        // pre-existing regex bug, not the format-variance gap this task's
+        // fallback detector addresses — so it's documented as a known
+        // limitation (also noted in Questions.md) rather than silently
+        // left untested.
+        let rule = rule_for("phone_number");
+        assert!(!rule.regex.is_match("Call them on +263771234567 today."));
+    }
+
+    #[test]
+    fn phone_number_negative_unsupported_prefix_does_not_match() {
+        // "076" isn't one of the three documented mobile prefixes (071/073/
+        // 077/078) — deliberately not matched (see rules.rs's own honesty
+        // note on landlines/other prefixes not being covered).
+        let rule = rule_for("phone_number");
+        assert!(!rule.regex.is_match("0761234567"));
+    }
+
+    // --- credit_card: 3 formats, 1 edge case (Amex 15-digit), 1 negative
+    // (format-valid but Luhn-invalid, exercised end-to-end in scan.rs) -----
+
+    #[test]
+    fn credit_card_matches_spaced_and_dashed_formats() {
+        let rule = rule_for("credit_card");
+        assert!(rule.regex.is_match("4111 1111 1111 1111"));
+        assert!(rule.regex.is_match("4111-1111-1111-1111"));
+        assert!(rule.regex.is_match("4111111111111111"));
+    }
+
+    #[test]
+    fn credit_card_edge_case_amex_fifteen_digit_format_matches() {
+        let rule = rule_for("credit_card");
+        assert!(rule.regex.is_match("378282246310005")); // well-known Amex test number
+        assert!(luhn_check("378282246310005"));
+    }
+
+    #[test]
+    fn credit_card_negative_wrong_length_does_not_match() {
+        let rule = rule_for("credit_card");
+        // Prefix group (4 digits) plus only ONE more 4-digit group — one
+        // short of the pattern's minimum of two repeat groups (12 digits
+        // total), so it must not match.
+        assert!(!rule.regex.is_match("4111 1111"));
+    }
+
+    // --- api_key: 3 specific-prefix formats, 1 edge case, 1 negative ------
+
+    #[test]
+    fn api_key_matches_known_specific_prefixes() {
+        let rule = rule_for("api_key");
+        assert!(rule.regex.is_match("sk-liveTestKeyAbcdefghijklmnop123456"));
+        assert!(rule.regex.is_match("AKIAABCDEFGHIJKLMNOP"));
+        assert!(rule.regex.is_match("ghp_abcdefghijklmnopqrstuvwxyz0123456789"));
+    }
+
+    #[test]
+    fn api_key_edge_case_other_github_token_prefixes_match() {
+        let rule = rule_for("api_key");
+        assert!(rule.regex.is_match("gho_abcdefghijklmnopqrstuvwxyz0123456789"));
+        assert!(rule.regex.is_match("ghs_abcdefghijklmnopqrstuvwxyz0123456789"));
+    }
+
+    #[test]
+    fn api_key_negative_ordinary_word_does_not_match_specific_pattern() {
+        // Must not match the SPECIFIC-prefix pattern (the generic 32+-char
+        // fallback is a separate, deliberately low-confidence rule, tested
+        // in scan.rs's own `generic_low_confidence_token_fails_closed`).
+        let rule = rule_for("api_key");
+        assert!(!rule.regex.is_match("sk8ing"));
+    }
+
+    // --- medical_record_no: 3 formats, 1 edge case, 1 negative ------------
+
+    #[test]
+    fn medical_record_no_matches_plausible_formats() {
+        let rule = rule_for("medical_record_no");
+        assert!(rule.regex.is_match("MRN-204981"));
+        assert!(rule.regex.is_match("MRN204981")); // no separator
+        assert!(rule.regex.is_match("mrn 204981")); // lowercase, space-separated
+    }
+
+    #[test]
+    fn medical_record_no_edge_case_minimum_digit_count_matches() {
+        let rule = rule_for("medical_record_no");
+        assert!(rule.regex.is_match("MRN12345")); // 5 digits, the documented floor
+    }
+
+    #[test]
+    fn medical_record_no_negative_missing_prefix_does_not_match() {
+        let rule = rule_for("medical_record_no");
+        assert!(!rule.regex.is_match("204981")); // bare digits, no MRN prefix at all
+    }
+
+    // --- Luhn checksum, used to gate credit_card matches -------------------
+
+    #[test]
+    fn luhn_check_rejects_short_input() {
+        assert!(!luhn_check("123"));
+    }
 }
