@@ -17,17 +17,29 @@ WORKDIR /app
 # Build dependencies first, in their own layer, so editing application code
 # doesn't force every dependency to recompile on the next build.
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir -p src/bin \
+# Cargo parses every target path declared in Cargo.toml (including the
+# [[bench]] scan_bench target added for the detection-engine benchmark)
+# before it even gets to deciding what `--bin lango-backend` means — so a
+# dummy benches/scan_bench.rs is needed here for the same reason the dummy
+# src files are, even though this layer never actually builds or runs the
+# bench itself (`--bin` scopes the build to the one binary target). Real
+# content isn't required, just a file that exists and parses — a plain
+# `fn main() {}` works here exactly like it does for the dummy src/main.rs
+# below, and is valid regardless of the bench's `harness = false` setting.
+RUN mkdir -p src/bin benches \
     && echo "fn main() {}" > src/main.rs \
     && echo "fn main() {}" > src/bin/seed.rs \
+    && echo "fn main() {}" > benches/scan_bench.rs \
     && touch src/lib.rs \
     && cargo build --release --bin lango-backend \
-    && rm -rf src
+    && rm -rf src benches
 
-# Now bring in the real source and rebuild — only this layer re-runs when
-# application code changes; the dependency artifacts above stay cached.
+# Now bring in the real source (including the real benches/scan_bench.rs,
+# which COPY . . brings in from the build context and overwrites the dummy
+# above with) and rebuild — only this layer re-runs when application code
+# changes; the dependency artifacts above stay cached.
 COPY . .
-RUN touch src/main.rs src/lib.rs src/bin/seed.rs \
+RUN touch src/main.rs src/lib.rs src/bin/seed.rs benches/scan_bench.rs \
     && cargo build --release --bin lango-backend
 
 # ---------------------------------------------------------------------------
