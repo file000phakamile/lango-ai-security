@@ -227,6 +227,21 @@ pub async fn export(
     let data = build_export_data(&state, &claims, query.start, query.end).await?;
     let filename_stem = format!("lango-compliance-export_{}_{}-to-{}", data.organisation_name.replace(' ', "-"), query.start, query.end);
 
+    // Real observability (product-depth task, Part 2) — a compliance data
+    // export is exactly the kind of action a real deployment wants a
+    // durable, structured record of independent of the export file itself
+    // (which the requester downloads and this backend never retains a copy
+    // of).
+    tracing::info!(
+        organisation_id = %claims.organisation_id,
+        requested_by = %claims.sub,
+        format = %query.format,
+        start = %query.start,
+        end = %query.end,
+        row_count = data.audit_rows.len(),
+        "compliance export generated"
+    );
+
     if query.format == "csv" {
         let csv = reports::build_csv(&data);
         Ok(file_response("text/csv", format!("{filename_stem}.csv"), csv.into_bytes()))

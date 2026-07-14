@@ -556,3 +556,25 @@ pub struct HealthSummaryResponse {
     pub spd_facility: Option<f64>,
     pub threshold: f64,
 }
+
+// ---------------------------------------------------------------------------
+// Real observability ("response scanning + observability + hardening" task,
+// Part 2) — see src/observability.rs and routes/backend_errors.rs.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, sqlx::FromRow, Serialize)]
+pub struct BackendErrorEntry {
+    pub id: Uuid,
+    pub method: String,
+    pub path: String,
+    #[serde(rename = "statusCode")]
+    pub status_code: i16,
+    pub message: Option<String>,
+    #[serde(rename = "createdAt")]
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BackendErrorsResponse {
+    pub errors: Vec<BackendErrorEntry>,
+}

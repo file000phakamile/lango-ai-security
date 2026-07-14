@@ -18,6 +18,8 @@ pub async fn login(
         ));
     }
 
+    let email_normalized = payload.email.trim().to_lowercase();
+
     let user = sqlx::query_as::<_, UserRow>(
         r#"
         SELECT u.id, u.email, u.password_hash, u.department, u.role, u.organisation_id,
@@ -29,13 +31,22 @@ pub async fn login(
         WHERE u.email = $1
         "#,
     )
-    .bind(payload.email.trim().to_lowercase())
+    .bind(&email_normalized)
     .fetch_optional(&state.db)
     .await?
-    .ok_or_else(|| AppError::Unauthorized("Invalid email or password.".to_string()))?;
+    .ok_or_else(|| {
+        // Real observability (product-depth task, Part 2): structured
+        // fields, never the password — this codebase's security review
+        // (Questions.md, "real observability + hardening" task) confirmed
+        // no credential value is ever passed to a `tracing` call anywhere
+        // in this file or elsewhere.
+        tracing::warn!(email = %email_normalized, "login failed: no such user");
+        AppError::Unauthorized("Invalid email or password.".to_string())
+    })?;
 
     let valid = verify_password(&payload.password, &user.password_hash)?;
     if !valid {
+        tracing::warn!(email = %email_normalized, user_id = %user.id, "login failed: wrong password");
         return Err(AppError::Unauthorized(
             "Invalid email or password.".to_string(),
         ));
@@ -66,6 +77,13 @@ pub async fn login(
     // last consented) — comparing against the org's live column rather
     // than trusting a possibly-stale value cached anywhere else.
     let requires_consent = user.user_accepted_policy_version.as_deref() != Some(user.org_consent_policy_version.as_str());
+
+    tracing::info!(
+        user_id = %user.id,
+        organisation_id = %user.organisation_id,
+        role = %user.role,
+        "login succeeded"
+    );
 
     Ok(Json(LoginResponse {
         token,

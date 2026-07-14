@@ -172,3 +172,15 @@ export interface HealthSummary {
   dirFacility: number | null;
   spdFacility: number | null;
 }
+
+/// Real observability ("response scanning + observability + hardening"
+/// task, Part 2) — one recorded 5xx backend response. See
+/// backend/src/observability.rs and routes/backend_errors.rs.
+export interface BackendErrorEntry {
+  id: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  message: string | null;
+  createdAt: string;
+}

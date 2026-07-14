@@ -8,16 +8,26 @@ use axum::http::{HeaderValue, Method};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-use lango_backend::{config::Config, routes, state::AppState};
+use lango_backend::{config::Config, observability::error_log_middleware, routes, state::AppState};
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "lango_backend=info,tower_http=info".into()),
-        )
-        .init();
+    // Real observability ("response scanning + observability + hardening"
+    // task, Part 2): `LOG_FORMAT=json` switches to machine-parseable JSON
+    // log lines (what a hosted deployment's log aggregator — Render's own
+    // log viewer, or anything downstream of it — can actually index and
+    // query), while the default stays the existing human-readable format
+    // for local `cargo run` development. Both paths use the exact same
+    // `tracing` events; only the output encoding changes, so nothing about
+    // application code needs to know or care which is active.
+    let json_logs = std::env::var("LOG_FORMAT").map(|v| v == "json").unwrap_or(false);
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "lango_backend=info,tower_http=info".into());
+    if json_logs {
+        tracing_subscriber::fmt().json().with_env_filter(env_filter).init();
+    } else {
+        tracing_subscriber::fmt().with_env_filter(env_filter).init();
+    }
 
     let config = Config::from_env();
 
@@ -114,12 +124,24 @@ async fn main() {
             "/api/labelled-dataset",
             get(routes::labelled_dataset::export),
         )
+        // Real observability (product-depth task, Part 2) —
+        // compliance_admin only; see routes/backend_errors.rs's own
+        // comment for the stated v1 scope limitation (not organisation-
+        // scoped).
+        .route(
+            "/api/backend-errors",
+            get(routes::backend_errors::get_backend_errors),
+        )
         // No auth required — this is what render.yaml's healthCheckPath
         // (and any external uptime check) hits.
         .route("/health", get(|| async { Json(json!({"status": "ok"})) }))
-        .with_state(state)
+        .with_state(state.clone())
         .layer(TraceLayer::new_for_http())
-        .layer(cors);
+        .layer(cors)
+        // Outermost layer — sees the final response exactly as the client
+        // will receive it (after CORS headers, after routing), which is
+        // what its status-code check needs. See src/observability.rs.
+        .layer(axum::middleware::from_fn_with_state(state, error_log_middleware));
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await

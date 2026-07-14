@@ -121,7 +121,16 @@ pub async fn record_review_decision(
     .await;
 
     match insert_result {
-        Ok(_) => Ok(Json(RecordReviewDecisionResponse { recorded: true })),
+        Ok(_) => {
+            tracing::info!(
+                audit_log_id = %audit_log_id,
+                organisation_id = %claims.organisation_id,
+                reviewer_id = %claims.sub,
+                decision = %payload.decision,
+                "active learning: review decision recorded"
+            );
+            Ok(Json(RecordReviewDecisionResponse { recorded: true }))
+        }
         // audit_log_id UNIQUE — a second attempt to review the same row is
         // rejected rather than silently overwriting the first reviewer's
         // judgment (see migration 0014's own comment on why).

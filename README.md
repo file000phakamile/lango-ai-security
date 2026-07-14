@@ -254,6 +254,33 @@ for the complete verification trail, including a methodology correction to an ea
 session's incorrect conclusion that extensions couldn't be loaded in this environment
 at all.
 
+### Real observability (v0.1)
+
+Structured logging (`tracing`) now covers the significant application events, not
+just errors — login success/failure, a prompt scan decision, a policy change, an
+active-learning review decision, a compliance export — each with real structured
+fields (organisation id, decision, etc.), not string-interpolated messages.
+`LOG_FORMAT=json` switches the whole log stream to machine-parseable JSON for a
+hosted deployment; the default stays human-readable for local `cargo run`.
+
+**Error tracking**: a free-tier third-party service (e.g. Sentry) was seriously
+researched, then deliberately not integrated — it needs an account/DSN only the
+person operating this deployment can provision, and this pass could not confirm the
+current `sentry`/`sentry-tracing` API with enough confidence to ship untestable
+integration code (see [Questions.md](Questions.md) item 27). Built instead: an
+internal `backend_errors` table, populated by a single middleware layer wrapping
+every route (`backend/src/observability.rs`), and a "System Health" dashboard view
+(`compliance_admin` only) showing the 100 most recent 5xx responses. Known,
+stated limitation: not organisation-scoped in v1 (an error can happen before any
+organisation is known) — see `routes/backend_errors.rs`'s own comment.
+
+**Uptime check**: `.github/workflows/uptime-check.yml` pings the deployed backend's
+`/health` endpoint every 30 minutes (with one retry, to avoid a false-positive alert
+from Render's free-tier cold-start delay), using GitHub's own built-in behavior of
+emailing repository watchers when a scheduled workflow run fails — no third-party
+uptime service or extra webhook needed. Known limitation: GitHub disables scheduled
+workflows after 60 days of repository inactivity.
+
 ## Data
 
 All data shown in this demo is **synthetic** — no real user, employee, or

@@ -156,6 +156,18 @@ pub async fn update_threshold(
     .execute(&state.db)
     .await?;
 
+    // Real observability (product-depth task, Part 2) — a policy change
+    // that widens or narrows detection sensitivity is exactly the kind of
+    // event a real deployment needs a durable, structured record of, beyond
+    // just the audit_log table (which never sees this — it's a scan-time
+    // table, not an admin-action one).
+    tracing::info!(
+        organisation_id = %claims.organisation_id,
+        updated_by = %claims.sub,
+        confidence_threshold = payload.confidence_threshold,
+        "policy: confidence threshold updated"
+    );
+
     Ok(Json(load_settings(&state, claims.organisation_id).await?))
 }
 
@@ -214,6 +226,13 @@ pub async fn create_custom_pattern(
     .bind(claims.sub)
     .execute(&state.db)
     .await?;
+
+    tracing::info!(
+        organisation_id = %claims.organisation_id,
+        created_by = %claims.sub,
+        entity_label = %entity_label,
+        "policy: custom pattern created"
+    );
 
     Ok(Json(load_settings(&state, claims.organisation_id).await?))
 }

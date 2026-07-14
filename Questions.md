@@ -1433,3 +1433,119 @@ Next.js build), but `manifest.json` was validated as syntactically correct JSON,
 and — far more substantively — the real end-to-end browser verification
 described above, which is qualitatively stronger evidence than either of those
 checks would have provided anyway.
+
+## 27. Real observability (product-depth task, Part 2) — design and judgment calls
+
+**Structured logging: `tracing` was already a dependency — the real gap was coverage,
+not the crate choice.** `tracing`/`tracing-subscriber` were already in `Cargo.toml`
+and lightly used (a startup log line in `main.rs`, a single `tracing::error!` in
+`error.rs` for every 5xx). "Using a real structured logging crate appropriate for
+Rust" was already satisfied technically; what wasn't there was actual coverage of
+significant application events. Added structured `tracing::info!`/`tracing::warn!`
+calls (real key=value fields, not string interpolation) at: login success/failure
+(never logging the password, confirmed by reading every new call site), a prompt
+scan decision, a policy threshold/custom-pattern change, an active-learning review
+decision, and a compliance export — the business events an operator or auditor would
+actually want a durable log trail of, none of which touch `audit_log` directly (that
+table is scan-time only) or existed as log output anywhere before this pass.
+`LOG_FORMAT=json` now switches the WHOLE subscriber to structured JSON output
+(machine-parseable, what a real log aggregator needs) while defaulting to the
+existing human-readable format for local `cargo run` — same `tracing` events either
+way, only the encoding changes.
+
+**`seed.rs`'s `println!` calls were deliberately left unconverted — a judgment call,
+not an oversight.** The task said "replacing any remaining ad hoc print style
+logging" — `seed.rs` is the only file with bare `println!` calls left anywhere in
+this codebase. It's a one-shot, interactively-run CLI dev tool (`cargo run --bin
+seed`), not the live server; its `println!` output (progress messages, and — this
+matters — the seeded demo login credentials printed at the end, which a developer
+running it needs to actually read off the terminal) is deliberately plain,
+human-facing terminal output, not a log stream anything downstream is meant to
+parse. Converting it to `tracing::info!` would add timestamp/level/target noise to
+what's meant to be a clean, quotable block of text, for a script that was never the
+subject of "ad hoc logging in the live backend" this task is actually about. Left
+as-is, documented here rather than silently skipped.
+
+**Error tracking: researched a free-tier Sentry integration seriously, then chose
+NOT to add the `sentry`/`sentry-tracing` crates — a considered decision, not a
+skipped step.** Two real, independent reasons, either one sufficient on its own:
+
+1. **Provisioning is genuinely outside what this pass could do.** A working Sentry
+   integration needs a real account and a project-specific DSN (a secret URL) —
+   something only the person operating this deployment can create. This is exactly
+   the scenario the task's own fallback clause anticipates ("if not, build a clean
+   internal error log table... instead").
+2. **The exact current API could not be confirmed with confidence.** Documentation
+   lookups for `sentry`/`sentry-tracing` (current version 0.48.5) returned
+   inconsistent guidance on whether the tracing-forwarding layer is
+   `sentry_tracing::layer()` (a separate crate) or `sentry::integrations::tracing::
+   layer()` (a feature-gated module of the main crate) — a real ambiguity, not just
+   caution. Combined with reason 1 (no DSN to actually test against), shipping this
+   integration would mean adding a real dependency, writing initialization code, and
+   being unable to verify any of it actually works — worse than not shipping it,
+   given this whole session's standing "test your work, don't just claim it" rule.
+
+**Built instead, and this DID run and get tested for real**: an internal
+`backend_errors` table (migration 0016) populated by a single tower/axum middleware
+layer (`src/observability.rs`) wrapping the entire router — one choke point, not
+something each handler has to remember to call, mirroring `error.rs`'s own existing
+single-choke-point design for `tracing::error!`. Only `>= 500` responses are
+recorded (a 4xx is a client mistake, not a backend error — verified by a dedicated
+test that a `BadRequest` does NOT get logged here). The DB write is spawned, not
+awaited inline, so a failure to log an error can never itself slow down or corrupt
+the response to whoever just hit a real problem — and if the write itself fails
+(plausibly because the database is the reason the request 500'd), it's dropped
+silently; `tracing::error!`'s log-file output remains the durable record either way.
+A new `GET /api/backend-errors` endpoint and "System Health" dashboard view
+(`compliance_admin` only) expose the last 100 rows.
+
+**Known, stated v1 scope limitation on the error dashboard**: it is NOT
+organisation-scoped — `backend_errors` has no `organisation_id` column at all, since
+an error can happen before any organisation is even known (a malformed login
+request). That means today, any `compliance_admin` in any organisation can see every
+organisation's backend error log. Reasonable for a single/few-tenant pilot where this
+is really an internal ops diagnostic, not a compliance record — but a real
+multi-tenant production deployment would need genuine operator-only access control,
+distinct from any tenant's own admin role. Not built here; documented explicitly in
+`routes/backend_errors.rs`'s own header comment, not left implicit.
+
+**Uptime check: a GitHub Actions scheduled workflow, not a third-party uptime
+service — the same "zero new infrastructure to provision" reasoning as the error-
+tracking decision above, but this time it's a genuinely complete, working solution,
+not a fallback.** `.github/workflows/uptime-check.yml` pings the deployed backend's
+`/health` endpoint every 30 minutes (`workflow_dispatch` also allows an on-demand
+run). The failure notification path is built into GitHub itself: a scheduled
+workflow run that fails automatically emails repository watchers (by default, the
+repo owner) — no webhook, Slack app, or extra secret needed for that baseline
+behavior to exist. Includes one retry with a 30-second wait before declaring a real
+failure, specifically because Render's free tier (already documented elsewhere in
+this repo) can take 30-60 seconds to wake from an idle cold start — without that
+retry, this workflow would generate a false-positive failure email roughly every
+time it happened to run against a cold backend, which would be worse than no
+alerting at all (alert fatigue training the owner to ignore it). Known, stated
+limitation: GitHub automatically disables scheduled workflows after 60 days with no
+repository activity — a genuinely dormant repo would silently stop being checked,
+not fail loudly. A real production deployment would eventually want a dedicated
+uptime-monitoring service independent of repository activity; this is the honest,
+zero-infrastructure v1 answer to "a backend outage should be caught by an alert."
+
+**Verification**: `backend/tests/observability.rs` — four real integration tests,
+using a genuinely different technique from every other file in this directory
+(`tower::ServiceExt::oneshot` dispatched against a real `Router` with the real
+middleware layered on, since the middleware only does anything by wrapping request
+dispatch — calling it as a plain function, the pattern every other test file uses,
+wouldn't exercise what it actually does). Confirmed: a real, deliberate
+`AppError::Internal` 500 — routed through the actual `AppError -> Response`
+conversion this backend uses, not a mock — gets recorded with the correctly
+sanitized message ("An internal error occurred.", NOT the raw internal error text
+passed to `AppError::Internal`, confirmed by asserting the raw text does NOT appear
+in the row); a successful 200 response is never recorded; a 4xx `BadRequest` is
+never recorded either (a real, deliberate distinction, not just "only check the
+happy path"); and only `compliance_admin` can read `GET /api/backend-errors`. Same
+sandbox limitation as every other integration test file this session (items 23-26):
+compiled cleanly (`cargo test --test observability --no-run`) but did not run
+against a live database here, since no Postgres matching this project's credentials
+was reachable. `cargo test --lib`: 113 unit tests passing (zero regressions), plus
+real-browser Playwright verification of the System Health view (mock-mode honesty
+message, and a network-mocked "live" mode showing real mocked error rows rendered
+correctly in the table).

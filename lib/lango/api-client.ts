@@ -12,6 +12,7 @@ import {
 } from "./mock-data";
 import type {
   AuditLogEntry,
+  BackendErrorEntry,
   DriftWeek,
   EntityType,
   HealthSummary,
@@ -428,12 +429,33 @@ export async function downloadLabelledDataset(format: "csv" | "jsonl"): Promise<
   const match = disposition.match(/filename="([^"]+)"/);
   const filename = match ? match[1] : `lango-labelled-dataset.${format}`;
 
-  const url = URL.createObjectURL(blob);
+  const labelledUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
+  a.href = labelledUrl;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(labelledUrl);
+}
+
+// ---------------------------------------------------------------------------
+// Real observability ("response scanning + observability + hardening"
+// task, Part 2) — see backend/src/routes/backend_errors.rs.
+// ---------------------------------------------------------------------------
+
+interface BackendErrorsResponse {
+  errors: Array<{
+    id: string;
+    method: string;
+    path: string;
+    statusCode: number;
+    message: string | null;
+    createdAt: string;
+  }>;
+}
+
+export async function fetchBackendErrors(): Promise<BackendErrorEntry[]> {
+  const response = await authedRequest<BackendErrorsResponse>("/api/backend-errors", "GET");
+  return response.errors;
 }

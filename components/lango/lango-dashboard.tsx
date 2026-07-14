@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Circle, FileDown, FileText, HeartPulse, KeyRound, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
+import { Activity, AlertTriangle, Circle, FileDown, FileText, HeartPulse, KeyRound, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
 import { Badge } from "./atoms";
 import { CommandCenter } from "./command-center";
 import { AuditLog } from "./audit-log";
@@ -11,6 +11,7 @@ import { PilotStatus } from "./pilot-status";
 import { HealthDataGuard } from "./health-data-guard";
 import { PolicyBuilder } from "./policy-builder";
 import { ComplianceExport } from "./compliance-export";
+import { SystemHealth } from "./system-health";
 import { loadDashboardData, type DashboardData } from "@/lib/lango/api-client";
 import type { NavItem } from "@/lib/lango/types";
 
@@ -29,6 +30,10 @@ const NAV: NavItem[] = [
   { key: "policy", label: "Policy Builder", Icon: SlidersHorizontal },
   // Eighth view, added by compliance export (product-depth task, Part 2).
   { key: "export", label: "Compliance Export", Icon: FileDown },
+  // Ninth view, added by real observability (product-depth task, Part 2).
+  // "system-health", not "health" - that key is already used by "Health
+  // Data Guard" above.
+  { key: "system-health", label: "System Health", Icon: Activity },
 ];
 
 export function LangoDashboard() {
@@ -173,6 +178,7 @@ export function LangoDashboard() {
           {view === "health" && <HealthDataGuard healthSummary={data.healthSummary} />}
           {view === "policy" && <PolicyBuilder source={data.source} />}
           {view === "export" && <ComplianceExport source={data.source} />}
+          {view === "system-health" && <SystemHealth source={data.source} />}
         </div>
       </main>
     </div>

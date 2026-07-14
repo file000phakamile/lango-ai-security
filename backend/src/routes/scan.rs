@@ -158,6 +158,20 @@ pub async fn scan(
     .fetch_one(&state.db)
     .await?;
 
+    // Real observability (product-depth task, Part 2) — structured fields
+    // only: organisation, decision, risk score, audit_log id. Never the
+    // prompt text itself or its redacted form, matching this codebase's
+    // existing "never store/emit raw prompt content" principle (see
+    // hash_prompt/original_prompt_hash) applied to logs, not just the
+    // database.
+    tracing::info!(
+        audit_log_id = %audit_log_id,
+        organisation_id = %claims.organisation_id,
+        decision = outcome.decision,
+        risk_score = outcome.risk_score,
+        "prompt scanned"
+    );
+
     Ok(Json(ScanResponse {
         id: audit_log_id,
         entities_detected: outcome.entities_detected,

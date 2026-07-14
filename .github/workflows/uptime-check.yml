@@ -1,0 +1,75 @@
+# Basic uptime check ("response scanning + observability + hardening"
+# task, Part 2): a simple scheduled ping against the deployed backend's
+# /health endpoint, so an outage is caught by an alert rather than
+# discovered when a user reports it.
+#
+# Why GitHub Actions, not a third-party uptime service: this needs zero
+# infrastructure this project doesn't already have. There is no account to
+# create, no API key to provision, no paid tier to sign up for — the repo
+# already lives on GitHub, and a scheduled workflow is a first-class,
+# free-for-this-use-case GitHub feature. The failure notification path is
+# also built in, not something this workflow has to construct: GitHub
+# automatically emails repository watchers (by default, the repo owner) when
+# a scheduled workflow run fails — no webhook, Slack integration, or extra
+# secret is required for that baseline behaviour to work.
+#
+# Known limitation, stated honestly: GitHub automatically disables scheduled
+# workflows after 60 days with no repository activity (commits, pushes,
+# etc.) — see GitHub's own documentation on scheduled workflows. A genuinely
+# dormant repo would silently stop being checked, not fail loudly. Re-running
+# this workflow manually (the workflow_dispatch trigger below) or making any
+# commit resets that clock. This is a real, accepted tradeoff of using a
+# free, already-available mechanism rather than a dedicated uptime-monitoring
+# service that runs independently of repository activity.
+name: Uptime Check
+
+on:
+  schedule:
+    # Every 30 minutes. Render's free tier spins the backend down after
+    # ~15 minutes of no traffic (see README.md's Deployment section) — this
+    # interval is short enough to catch a real outage reasonably quickly,
+    # long enough not to be the sole reason the backend never gets to idle
+    # (this check is not intended as a keep-alive mechanism, just an honest
+    # side effect of also being one).
+    - cron: "*/30 * * * *"
+  # Lets anyone with write access trigger a check on demand — e.g. right
+  # after a deploy, without waiting for the next scheduled tick.
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health endpoint (with one retry for a Render free-tier cold start)
+        run: |
+          URL="${LANGO_BACKEND_HEALTH_URL:-https://lango-backend-qwkx.onrender.com/health}"
+          echo "Checking $URL"
+
+          check() {
+            curl -s -o /tmp/health_response.json -w "%{http_code}" --max-time 70 "$URL" || echo "000"
+          }
+
+          STATUS=$(check)
+          if [ "$STATUS" != "200" ]; then
+            echo "First check returned HTTP $STATUS. Render's free tier can take 30-60s to wake"
+            echo "from an idle cold start (documented in this repo's README) - retrying once"
+            echo "after a short wait before treating this as a real outage rather than an"
+            echo "expected cold start."
+            sleep 30
+            STATUS=$(check)
+          fi
+
+          echo "Final HTTP status: $STATUS"
+          cat /tmp/health_response.json 2>/dev/null || true
+
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Lango backend health check failed twice (final HTTP $STATUS) - this looks like a real outage, not just a cold start."
+            exit 1
+          fi
+
+          echo "Backend is healthy."
+        env:
+          # Override via a repository variable (Settings > Secrets and
+          # variables > Actions > Variables) if the deployed backend's URL
+          # ever changes — no code edit needed for that.
+          LANGO_BACKEND_HEALTH_URL: ${{ vars.LANGO_BACKEND_HEALTH_URL }}
