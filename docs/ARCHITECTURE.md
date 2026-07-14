@@ -4,8 +4,12 @@ This document is split into **deployed v0.1 (this repo, live today)** and **targ
 production** columns for every row. The v0.1 system is real and deployed: a Rust +
 Axum backend on Render, a real PostgreSQL schema, a real (if intentionally simplified)
 detection engine, and a Vercel-hosted Next.js frontend calling it directly — confirmed
-end-to-end (real login, all five dashboard views pulling live data, verified via the
-browser Network tab), not a simulation and not merely "runs on a laptop." It is still
+end-to-end (real login, all five original dashboard views pulling live data, verified
+via the browser Network tab — three more views, Policy Builder/Compliance Export/
+Active Learning, were added afterward and are exercised by real integration tests and
+Playwright, but not yet re-checked against the live Vercel deployment specifically,
+since nothing has been redeployed since), not a simulation and not merely "runs on a
+laptop." It is still
 **not production-hardened**: no live AI provider connection, no live security-event
 detection, no scheduled jobs, no dashboard login screen, no load testing. Real
 multi-tenant isolation, a real role model, a data-use consent gate, and self-service

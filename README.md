@@ -111,7 +111,11 @@ judgment calls behind it.
 **Both halves are now deployed and wired together**: the backend runs on Render
 (`https://lango-backend-qwkx.onrender.com`, real Rust/Axum + PostgreSQL) and the
 deployed Vercel demo calls it directly — confirmed pulling live data (not mock) across
-all five dashboard views via the browser Network tab. `NEXT_PUBLIC_USE_MOCK_DATA` is
+all five original dashboard views via the browser Network tab (three more views have
+since been added locally — see [Multi-tenancy](#multi-tenancy-v01) and the Policy
+builder/Compliance export/Active learning loop sections below — and are covered by
+integration tests and Playwright, but haven't been re-checked against the live Vercel
+deployment specifically, since nothing has been redeployed since). `NEXT_PUBLIC_USE_MOCK_DATA` is
 not set on the Vercel deployment, so the mock generator is only ever the *fallback*
 path there now (e.g. during Render's free-tier cold start — see
 [Deployment](#deployment)), not the default. See [Questions.md](Questions.md) for the
@@ -378,7 +382,9 @@ Stated plainly, not softened:
 
 - **v0.1, not production-hardened.** The backend, database, and detection engine are
   real and functioning — deployed and verified end-to-end (Rust/Axum on Render, real
-  PostgreSQL, real auth, all five dashboard views confirmed pulling live data) — this
+  PostgreSQL, real auth, all five original dashboard views confirmed pulling live
+  data — three more, added afterward, are covered by integration tests and Playwright
+  but not yet re-verified against the live deployment) — this
   is no longer a frontend-only simulation. But nothing here has had a security/
   production hardening pass, and it hasn't been load-tested or exercised under real
   institutional traffic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full
