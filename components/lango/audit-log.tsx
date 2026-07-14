@@ -1,17 +1,132 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight, X as XIcon } from "lucide-react";
 import { Badge, Panel } from "./atoms";
 import { decisionBadge } from "./decision-badge";
 import { riskBand } from "@/lib/lango/mock-data";
-import type { AuditLogEntry, Decision } from "@/lib/lango/types";
+import { recordReviewDecision } from "@/lib/lango/api-client";
+import { REVIEWABLE_DECISIONS, type AuditLogEntry, type Decision, type ReviewDecisionInfo } from "@/lib/lango/types";
 
-export function AuditLog({ log }: { log: AuditLogEntry[] }) {
+/// Active learning loop (product-depth task, Part 3): lets a
+/// compliance_admin or department_reviewer confirm or overturn a flagged
+/// low-confidence row directly from the row-expand. Only rendered for rows
+/// whose `decision` is in `REVIEWABLE_DECISIONS` — everything else (a clean
+/// prompt, or a fully-trusted redaction) has no low-confidence judgment
+/// call to confirm or overturn. `source !== "live"` disables the action
+/// entirely (same honesty pattern as PolicyBuilder/ComplianceExport) since
+/// there is nothing real to record against mock data.
+function ReviewSection({
+  row,
+  source,
+  localReview,
+  onRecorded,
+}: {
+  row: AuditLogEntry;
+  source: "live" | "mock";
+  localReview?: ReviewDecisionInfo;
+  onRecorded: (id: string, review: ReviewDecisionInfo) => void;
+}) {
+  const [reasoning, setReasoning] = useState("");
+  const [submitting, setSubmitting] = useState<"confirmed" | "overturned" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!REVIEWABLE_DECISIONS.includes(row.decision)) {
+    return null;
+  }
+
+  const effectiveReview = row.review ?? localReview ?? null;
+
+  if (effectiveReview) {
+    const color = effectiveReview.decision === "confirmed" ? "#2F7A53" : "#8A6323";
+    return (
+      <div className="mt-2 pt-2 border-t border-[#E1E4E8]">
+        <p className="text-[#8A93A1] mb-1">active learning: review decision recorded</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge color={color}>{effectiveReview.decision}</Badge>
+          <span className="text-[10px] text-[#8A93A1]">by {effectiveReview.reviewerEmail}</span>
+        </div>
+        {effectiveReview.reasoning && (
+          <p className="text-[#14171C] font-sans mt-1">{effectiveReview.reasoning}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (source !== "live") {
+    return (
+      <div className="mt-2 pt-2 border-t border-[#E1E4E8] text-[10px] text-[#8A93A1]">
+        Confirming/overturning this flagged row requires the live backend.
+      </div>
+    );
+  }
+
+  async function submit(decision: "confirmed" | "overturned") {
+    setError(null);
+    setSubmitting(decision);
+    try {
+      const trimmedReasoning = reasoning.trim();
+      await recordReviewDecision(row.id, decision, trimmedReasoning || undefined);
+      onRecorded(row.id, {
+        decision,
+        reasoning: trimmedReasoning || null,
+        reviewerEmail: "you",
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t border-[#E1E4E8]">
+      <p className="text-[#8A93A1] mb-1">active learning: record a review decision</p>
+      <textarea
+        value={reasoning}
+        onChange={(e) => setReasoning(e.target.value)}
+        placeholder="reasoning (optional)"
+        rows={2}
+        className="w-full bg-[#FFFFFF] border border-[#E1E4E8] text-[#14171C] text-xs rounded px-2 py-1 font-sans"
+      />
+      <div className="flex gap-2 mt-1.5">
+        <button
+          type="button"
+          onClick={() => submit("confirmed")}
+          disabled={submitting !== null}
+          className="flex items-center gap-1 bg-[#2F7A53] text-white text-xs rounded px-2.5 py-1 disabled:opacity-50"
+        >
+          <Check size={12} /> {submitting === "confirmed" ? "Recording…" : "Confirm"}
+        </button>
+        <button
+          type="button"
+          onClick={() => submit("overturned")}
+          disabled={submitting !== null}
+          className="flex items-center gap-1 bg-[#A83A3A] text-white text-xs rounded px-2.5 py-1 disabled:opacity-50"
+        >
+          <XIcon size={12} /> {submitting === "overturned" ? "Recording…" : "Overturn"}
+        </button>
+      </div>
+      {error && <p className="text-[10px] text-[#A83A3A] mt-1">{error}</p>}
+    </div>
+  );
+}
+
+export function AuditLog({ log, source }: { log: AuditLogEntry[]; source: "live" | "mock" }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | Decision>("all");
+  // Active learning loop: a just-recorded review decision, keyed by
+  // audit_log id, merged with whatever `log` already carries — lets the UI
+  // reflect a successful confirm/overturn immediately without waiting for
+  // the next full dashboard data reload.
+  const [localReviews, setLocalReviews] = useState<Record<string, ReviewDecisionInfo>>({});
 
   const filtered = log.filter((r) => (filter === "all" ? true : r.decision === filter));
+
+  function handleRecorded(id: string, review: ReviewDecisionInfo) {
+    setLocalReviews((prev) => ({ ...prev, [id]: review }));
+  }
 
   return (
     <Panel
@@ -85,6 +200,12 @@ export function AuditLog({ log }: { log: AuditLogEntry[] }) {
                     <p className="text-[#8A93A1] mb-1">sensitivity_class</p>
                     <p className="text-[#14171C]">{r.sensitivityClass}</p>
                   </div>
+                  <ReviewSection
+                    row={r}
+                    source={source}
+                    localReview={localReviews[r.id]}
+                    onRecorded={handleRecorded}
+                  />
                 </div>
               )}
             </div>
@@ -139,6 +260,12 @@ export function AuditLog({ log }: { log: AuditLogEntry[] }) {
                           <div>
                             <p className="text-[#8A93A1] mb-1">reason_string</p>
                             <p className="text-[#14171C] font-sans">{r.reason}</p>
+                            <ReviewSection
+                              row={r}
+                              source={source}
+                              localReview={localReviews[r.id]}
+                              onRecorded={handleRecorded}
+                            />
                           </div>
                           <div>
                             <p className="text-[#8A93A1] mb-1">ai_model_used</p>

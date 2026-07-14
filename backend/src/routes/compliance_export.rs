@@ -155,7 +155,9 @@ async fn fetch_drift_weeks(
         .collect())
 }
 
-fn file_response(content_type: &'static str, filename: String, bytes: Vec<u8>) -> Response {
+/// Shared by `routes::labelled_dataset` (product-depth task, Part 3) as well
+/// as this module — both hand back a raw file download rather than JSON.
+pub(crate) fn file_response(content_type: &'static str, filename: String, bytes: Vec<u8>) -> Response {
     (
         StatusCode::OK,
         [

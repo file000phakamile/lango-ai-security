@@ -1077,3 +1077,113 @@ Compliance Export view in both mock mode (375px, honesty message) and a
 network-mocked "live" mode (desktop, real `page.waitForEvent("download")` producing
 a real downloaded file with the correct filename and content, once the CORS fix
 above was in place).
+
+## 25. Active learning loop (product-depth task, Part 3) — design and judgment calls
+
+**Eligibility scoped to BOTH `blocked_low_confidence` and `redacted_low_confidence_
+review`, not just the latter.** The task's phrase was "a flagged low-confidence
+review item in the audit log." Read most literally, that maps to
+`redacted_low_confidence_review` alone — its own `reason_string` and `scan.rs`
+comments literally say "flagged for compliance review." But `blocked_low_confidence`
+is equally a low-confidence outcome the system was uncertain about, and arguably the
+MORE valuable case for training signal: a human saying "actually this was a false-
+positive block" or "no, correctly blocked" is exactly the ground-truth label a
+future rule-tuning pass would want most, since it's the tier where the system
+refused to act at all. Went with the broader interpretation — both tiers eligible,
+enforced via `REVIEWABLE_DECISIONS` in `backend/src/models.rs`, checked identically
+on both the backend (a hard 400 for an ineligible row, tested) and would need to be
+checked on the frontend too if it ever diverges from what the backend accepts. A
+`cleared_no_entities` or fully-trusted `redacted_and_forwarded` row was excluded
+either way — neither reflects a low-confidence judgment call to confirm or overturn.
+
+**One decision per audit_log row, enforced by a DB `UNIQUE` constraint, not an
+upsert.** A second attempt to record a decision on an already-reviewed row is
+rejected (`400`, tested directly) rather than silently overwriting the first
+reviewer's judgment. Reasoning: this table exists to be training/rule-tuning
+ground truth — letting a later reviewer silently replace an earlier one's label
+(maybe by mistake, maybe because they disagree) would corrupt provenance with no
+record that a correction even happened. If genuine correction turns out to be a
+real need, the right fix is an explicit "supersedes" relationship, not a silent
+overwrite — deliberately not built for v1 since the task didn't ask for it.
+
+**`review_decisions` snapshots the original detection detail rather than only
+storing a foreign key to `audit_log`.** The task explicitly asked to "store enough
+detail (original detection, human decision, reasoning if provided) to be genuinely
+useful as future training/rule-tuning data" — a labelled-example row that requires
+joining back to a live `audit_log` row to reconstruct what was actually detected is
+a weaker artifact than one that's self-contained, especially since `audit_log`
+itself has no stated retention/purge policy guarantee in this codebase yet (see
+docs/SECURITY_PRIVACY.md's Encryption/Auditability rows on what's still target-
+state). Copying `entities_detected`, `risk_score`, `reason_string`,
+`sensitivity_class`, and `department` into `review_decisions` at write time costs a
+handful of extra columns and guarantees the exported dataset never silently loses
+data to an unrelated retention decision made later.
+
+**department_reviewer is scoped to their own department for reviewing, exactly
+like their existing audit-log READ access** (`routes::audit_log`'s existing
+department filter) — not a new policy invented for this feature, just applied
+consistently: a reviewer who can't see a row in the dashboard shouldn't be able to
+record a judgment on it via direct API access either. Enforced as a real check
+against the target row's actual `department` column (fetched server-side), not
+trusted from any client-supplied value — tested directly
+(`department_reviewer_cannot_review_a_row_outside_their_own_department`).
+
+**Read side: a LEFT JOIN into the existing `/api/audit-log` query, not a separate
+endpoint.** Considered a `GET /api/audit-log/:id/review-decision` fetch-on-expand
+endpoint, but the dashboard's row-expand already has every other field it needs
+(reason_string, model, scan result) from the one paginated audit-log response — a
+second round-trip just to check "has this been reviewed yet" would be a real,
+avoidable latency cost on every row expand. Extended the existing query with a
+`LEFT JOIN review_decisions ... LEFT JOIN users` (for the reviewer's email) instead,
+so `AuditLogEntry.review` is `null` until a decision exists and populated inline
+the instant one does, no extra request.
+
+**Export: no date range, unlike Compliance Export (Part 2).** The task asked for
+"a simple export of this labelled dataset" — every labelled example an organisation
+has ever produced is potential training signal regardless of when it was recorded,
+so scoping it to a date range would just be an arbitrary complication with no clear
+benefit the task asked for. CSV and JSONL both offered (not just CSV): JSONL (one
+JSON object per line) is the shape most ML/rule-tuning ingestion tooling actually
+consumes directly, so offering only CSV would have undersold "genuinely useful as
+future training data."
+
+**Explicitly did not build**, exactly as the task said not to: any retraining,
+fine-tuning, automatic threshold adjustment, or automatic custom-pattern generation
+from the labelled data. `backend/src/reports.rs`'s `build_labelled_dataset_csv`/
+`build_labelled_dataset_jsonl` and `routes::labelled_dataset::export` only ever
+format and return what a human already decided — nothing reads `review_decisions`
+anywhere else in this codebase, and nothing writes to `detection_rules`,
+`organisation_detection_settings`, or `organisation_custom_patterns` (the policy
+builder's own tables, item 23) from this feature at all.
+
+**Frontend: `localReviews` client-side merge, not a full data reload after
+recording.** `AuditLog`'s row-expand calls `recordReviewDecision`, then merges the
+just-recorded decision into a local `Record<string, ReviewDecisionInfo>` state
+rather than re-fetching the whole audit log page — the UI reflects the new state
+instantly (verified via a real Playwright click-through: before/after screenshots
+show the confirm/overturn buttons replaced by the recorded decision immediately)
+without an extra round-trip. `row.review ?? localReviews[r.id]` is the effective
+value used everywhere, so a genuine reload (e.g. reopening the dashboard) still
+shows the real server-side value once it exists there too.
+
+**Verification**: `backend/tests/review_decisions.rs` — seven real `#[sqlx::test]`
+integration tests (a compliance_admin can confirm an eligible row; a second decision
+on the same row is rejected; a fully-trusted row is not eligible; staff is
+forbidden; a department_reviewer cannot review outside their own department; a row
+belonging to another organisation cannot be reviewed; a recorded decision appears
+both inline on `/api/audit-log` and in the labelled-dataset CSV export) calling the
+real route handlers directly. Compiles cleanly but, per the same sandbox limitation
+as items 23-24, was not run against a live Postgres here. `backend/src/reports.rs`'s
+two new pure functions (`build_labelled_dataset_csv`/`_jsonl`) DID run and pass: 2
+unit tests confirming correct CSV quoting of a reasoning field containing a comma,
+and that each JSONL line is independently valid JSON with the expected fields.
+Full backend suite: 108 unit tests passing (102 carried over + 6 new), zero
+regressions, plus real `cargo build` and `cargo test --no-run` across the whole
+workspace including the new `review_decisions.rs` integration file. Frontend:
+`tsc --noEmit` and `eslint` clean; real-browser Playwright verification of the full
+confirm/overturn flow (network-mocked "live" mode: expand a flagged row, fill
+reasoning, click Overturn, screenshot the recorded result — matches the design
+exactly) at desktop width, plus the Labelled Dataset export panel's download flow
+(real `page.waitForEvent("download")`, correct filename via the same CORS
+`expose_headers` fix from item 24), plus 375px zero-overflow confirmation of the
+new confirm/overturn UI in the Audit Log's card-list view.

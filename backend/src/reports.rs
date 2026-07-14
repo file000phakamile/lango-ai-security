@@ -20,7 +20,7 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 
-use crate::models::ParityEntry;
+use crate::models::{LabelledExampleRow, ParityEntry};
 
 /// One audit_log row as needed by a compliance export — a deliberately
 /// separate shape from `models::AuditLogRow`/`AuditLogEntry` (the live
@@ -359,10 +359,76 @@ pub fn build_pdf(data: &ComplianceExportData) -> Vec<u8> {
     w.save_to_bytes()
 }
 
+// ---------------------------------------------------------------------------
+// Active learning loop (product-depth task, Part 3) — labelled dataset
+// export. This module ONLY formats already-recorded human confirm/overturn
+// decisions; nothing here (or anywhere else in this codebase) retrains or
+// fine-tunes anything automatically from this data — that's explicitly
+// future work, not attempted by this task. See `routes::labelled_dataset`
+// for the HTTP layer and `routes::review_decisions` for where a decision is
+// actually recorded.
+// ---------------------------------------------------------------------------
+
+/// Builds the labelled-dataset CSV export: one row per recorded human
+/// review decision, self-contained (the original detection detail is
+/// already denormalized into `LabelledExampleRow` at write time — see
+/// migration 0014 — so this export never needs to join back to `audit_log`).
+pub fn build_labelled_dataset_csv(rows: &[LabelledExampleRow]) -> String {
+    let mut w = csv::WriterBuilder::new().from_writer(vec![]);
+    let _ = w.write_record([
+        "id",
+        "audit_log_id",
+        "reviewer_role",
+        "decision",
+        "reasoning",
+        "original_decision",
+        "original_entities_detected",
+        "original_risk_score",
+        "original_reason_string",
+        "original_sensitivity_class",
+        "original_department",
+        "created_at_utc",
+    ]);
+    for r in rows {
+        let _ = w.write_record([
+            r.id.to_string(),
+            r.audit_log_id.to_string(),
+            r.reviewer_role.clone(),
+            r.decision.clone(),
+            r.reasoning.clone().unwrap_or_default(),
+            r.original_decision.clone(),
+            r.original_entities_detected.0.join("; "),
+            format!("{:.2}", r.original_risk_score),
+            r.original_reason_string.clone(),
+            r.original_sensitivity_class.clone(),
+            r.original_department.clone(),
+            r.created_at.to_rfc3339(),
+        ]);
+    }
+    let bytes = w.into_inner().expect("in-memory csv writer cannot fail to flush");
+    String::from_utf8(bytes).expect("csv writer output is always valid UTF-8 for UTF-8 input")
+}
+
+/// Builds the labelled-dataset JSONL (JSON Lines) export — one JSON object
+/// per line, the shape most ML training/rule-tuning tooling ingests
+/// directly, which is why this format exists alongside the CSV rather than
+/// CSV being the only option.
+pub fn build_labelled_dataset_jsonl(rows: &[LabelledExampleRow]) -> String {
+    let mut out = String::new();
+    for r in rows {
+        if let Ok(line) = serde_json::to_string(r) {
+            out.push_str(&line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use uuid::Uuid;
 
     fn sample_data() -> ComplianceExportData {
         ComplianceExportData {
@@ -465,5 +531,46 @@ mod tests {
         let truncated = truncate_chars(s, 4);
         assert!(truncated.chars().count() <= 4);
         assert!(String::from_utf8(truncated.clone().into_bytes()).is_ok());
+    }
+
+    fn sample_labelled_example() -> LabelledExampleRow {
+        LabelledExampleRow {
+            id: Uuid::nil(),
+            audit_log_id: Uuid::nil(),
+            reviewer_role: "compliance_admin".to_string(),
+            decision: "overturned".to_string(),
+            reasoning: Some("This was an ordinary phrase, not a name, comma test".to_string()),
+            original_decision: "redacted_low_confidence_review".to_string(),
+            original_entities_detected: sqlx::types::Json(vec!["full_name".to_string()]),
+            original_risk_score: 0.15,
+            original_reason_string: "Low-confidence name match (0.55) redacted automatically".to_string(),
+            original_sensitivity_class: "standard".to_string(),
+            original_department: "Credit Risk".to_string(),
+            created_at: Utc.with_ymd_and_hms(2026, 7, 1, 10, 0, 0).unwrap(),
+        }
+    }
+
+    #[test]
+    fn labelled_dataset_csv_includes_the_decision_and_original_detection_detail() {
+        let csv = build_labelled_dataset_csv(&[sample_labelled_example()]);
+        assert!(csv.contains("overturned"));
+        assert!(csv.contains("redacted_low_confidence_review"));
+        assert!(csv.contains("full_name"));
+        assert!(csv.contains("compliance_admin"));
+        // The reasoning field contains a comma — must be quoted, or it would
+        // silently split into extra columns when opened in a spreadsheet.
+        assert!(csv.contains("\"This was an ordinary phrase, not a name, comma test\""));
+    }
+
+    #[test]
+    fn labelled_dataset_jsonl_is_one_valid_json_object_per_line() {
+        let jsonl = build_labelled_dataset_jsonl(&[sample_labelled_example(), sample_labelled_example()]);
+        let lines: Vec<&str> = jsonl.trim_end().split('\n').collect();
+        assert_eq!(lines.len(), 2);
+        for line in lines {
+            let parsed: serde_json::Value = serde_json::from_str(line).expect("each line must be valid JSON");
+            assert_eq!(parsed["decision"], "overturned");
+            assert_eq!(parsed["originalDecision"], "redacted_low_confidence_review");
+        }
     }
 }

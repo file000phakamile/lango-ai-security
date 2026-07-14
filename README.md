@@ -189,6 +189,21 @@ together in one file:
   500 most recent audit log rows in range (the CSV has no such cap — see
   [Questions.md](Questions.md) item 24 for why).
 
+### Active learning loop (v0.1)
+
+When a `compliance_admin` or `department_reviewer` confirms or overturns a flagged
+low-confidence audit_log row (`blocked_low_confidence` or `redacted_low_confidence_
+review` — the two tiers where the detection engine itself was uncertain) from the
+Audit Log view's row-expand, that human judgment is recorded as a labelled example
+in a new `review_decisions` table (`POST /api/audit-log/:id/review-decision`,
+migration `0014`) — not just a status change on the audit_log row. Each row is a
+self-contained snapshot (the original detection detail, the human decision, and any
+reasoning given), exportable as CSV or JSONL (`GET /api/labelled-dataset`, from the
+Compliance Export view) for future rule-tuning. **This only captures the signal —
+nothing in this codebase retrains or fine-tunes anything automatically from it**,
+by explicit task scope; that's future work. See [Questions.md](Questions.md) item
+25 for the eligibility/scoping judgment calls.
+
 ## Data
 
 All data shown in this demo is **synthetic** — no real user, employee, or
@@ -321,13 +336,15 @@ path, and the PSI/KL-divergence math.
 **Backend integration tests** (`cd backend && cargo test`, requires a real Postgres
 reachable via `DATABASE_URL` — see [Setup](#full-stack-real-backend--real-data)):
 `backend/tests/multi_tenant_isolation.rs`, `consent_flow.rs`,
-`organisation_signup.rs`, `policy_builder.rs`, and `compliance_export.rs`, each
-using `#[sqlx::test]` against a freshly-migrated throwaway database and calling
-real route handlers directly (no HTTP server, no mocks) — cross-tenant isolation,
-the consent gate, org signup, the policy builder's safe-bounds enforcement
-(including a direct test that an out-of-range threshold is rejected by the API
-itself, not just the UI), and the compliance export's date-range filtering, RBAC,
-and cross-tenant isolation of the exported data.
+`organisation_signup.rs`, `policy_builder.rs`, `compliance_export.rs`, and
+`review_decisions.rs`, each using `#[sqlx::test]` against a freshly-migrated
+throwaway database and calling real route handlers directly (no HTTP server, no
+mocks) — cross-tenant isolation, the consent gate, org signup, the policy
+builder's safe-bounds enforcement (including a direct test that an out-of-range
+threshold is rejected by the API itself, not just the UI), the compliance
+export's date-range filtering/RBAC/isolation, and the active learning loop's
+review-eligibility rules, department scoping, one-decision-per-row enforcement,
+and cross-tenant isolation.
 
 No frontend automated test suite yet — an honest gap, not an oversight we're hiding.
 See [Known Limitations](#known-limitations) and

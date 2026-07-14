@@ -76,9 +76,13 @@ pub async fn get_audit_log(
         r#"
         SELECT a.id, u.email AS user_email, a.department, a."timestamp",
                a.entities_detected, a.risk_score, a.decision, a.reason_string,
-               a.ai_model_used, a.response_scan_result, a.sensitivity_class
+               a.ai_model_used, a.response_scan_result, a.sensitivity_class,
+               rd.decision AS review_decision, rd.reasoning AS review_reasoning,
+               ru.email AS review_reviewer_email, rd.created_at AS review_created_at
         FROM audit_log a
         JOIN users u ON u.id = a.user_id
+        LEFT JOIN review_decisions rd ON rd.audit_log_id = a.id
+        LEFT JOIN users ru ON ru.id = rd.reviewer_user_id
         WHERE a.organisation_id =
         "#,
     );

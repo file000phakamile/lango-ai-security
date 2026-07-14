@@ -243,6 +243,29 @@ pub struct AuditLogRow {
     /// breakdown must NOT be exposed in any aggregate/trend view. See
     /// routes/health.rs's own comment for the full reasoning.
     pub sensitivity_class: String,
+    /// The four `review_*` columns below come from a LEFT JOIN onto
+    /// `review_decisions` (active learning loop, product-depth task Part 3)
+    /// — all `None` together when no human has recorded a decision on this
+    /// row yet, all `Some` together when one has (see
+    /// `routes::audit_log::get_audit_log`'s query).
+    pub review_decision: Option<String>,
+    pub review_reasoning: Option<String>,
+    pub review_reviewer_email: Option<String>,
+    pub review_created_at: Option<DateTime<Utc>>,
+}
+
+/// A human reviewer's recorded confirm/overturn judgment on a flagged
+/// low-confidence audit_log row — the read-side view of `review_decisions`,
+/// nested into `AuditLogEntry` so the dashboard's existing row-expand can
+/// show it without a second network call.
+#[derive(Debug, Serialize)]
+pub struct ReviewDecisionSummary {
+    pub decision: String,
+    pub reasoning: Option<String>,
+    #[serde(rename = "reviewerEmail")]
+    pub reviewer_email: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
@@ -259,10 +282,20 @@ pub struct AuditLogEntry {
     pub scan: String,
     #[serde(rename = "sensitivityClass")]
     pub sensitivity_class: String,
+    pub review: Option<ReviewDecisionSummary>,
 }
 
 impl From<AuditLogRow> for AuditLogEntry {
     fn from(r: AuditLogRow) -> Self {
+        let review = match (r.review_decision, r.review_reviewer_email, r.review_created_at) {
+            (Some(decision), Some(reviewer_email), Some(created_at)) => Some(ReviewDecisionSummary {
+                decision,
+                reasoning: r.review_reasoning,
+                reviewer_email,
+                created_at,
+            }),
+            _ => None,
+        };
         Self {
             id: r.id,
             user: r.user_email,
@@ -275,8 +308,72 @@ impl From<AuditLogRow> for AuditLogEntry {
             model: r.ai_model_used,
             scan: r.response_scan_result,
             sensitivity_class: r.sensitivity_class,
+            review,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Active learning loop (product-depth task, Part 3) — see
+// routes/review_decisions.rs and routes/labelled_dataset.rs. Captures human
+// confirm/overturn judgments on flagged low-confidence audit_log rows as
+// labelled training/rule-tuning examples. Deliberately does NOT retrain or
+// fine-tune anything automatically — this is capture-only, by explicit task
+// scope.
+// ---------------------------------------------------------------------------
+
+/// Decision values a reviewer may record. Not modeled as a Rust enum with
+/// `#[derive(Deserialize)]` mapping strings automatically, because the
+/// handler needs to produce the SAME clean `AppError::BadRequest` shape
+/// every other validation failure in this codebase uses for an invalid
+/// value, rather than axum/serde's generic deserialization error text.
+pub const VALID_REVIEW_DECISIONS: [&str; 2] = ["confirmed", "overturned"];
+
+/// `audit_log.decision` values eligible for a human confirm/overturn
+/// judgment — the two tiers where the SYSTEM itself was uncertain
+/// (`blocked_low_confidence`, `redacted_low_confidence_review`), which is
+/// exactly the data a human review adds real signal to. A `cleared_
+/// no_entities` or fully-trusted `redacted_and_forwarded` row has no
+/// low-confidence judgment call to confirm or overturn.
+pub const REVIEWABLE_DECISIONS: [&str; 2] = ["blocked_low_confidence", "redacted_low_confidence_review"];
+
+#[derive(Debug, Deserialize)]
+pub struct RecordReviewDecisionRequest {
+    pub decision: String,
+    pub reasoning: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecordReviewDecisionResponse {
+    pub recorded: bool,
+}
+
+/// One row of the exported labelled dataset — a flat, self-contained shape
+/// (no join required to reconstruct it) matching what `review_decisions`
+/// itself stores, since the whole point of the snapshot columns is that
+/// this export never needs to touch `audit_log` at read time.
+#[derive(Debug, sqlx::FromRow, Serialize)]
+pub struct LabelledExampleRow {
+    pub id: Uuid,
+    pub audit_log_id: Uuid,
+    #[serde(rename = "reviewerRole")]
+    pub reviewer_role: String,
+    pub decision: String,
+    pub reasoning: Option<String>,
+    #[serde(rename = "originalDecision")]
+    pub original_decision: String,
+    #[serde(rename = "originalEntitiesDetected")]
+    pub original_entities_detected: sqlx::types::Json<Vec<String>>,
+    #[serde(rename = "originalRiskScore")]
+    pub original_risk_score: f32,
+    #[serde(rename = "originalReasonString")]
+    pub original_reason_string: String,
+    #[serde(rename = "originalSensitivityClass")]
+    pub original_sensitivity_class: String,
+    #[serde(rename = "originalDepartment")]
+    pub original_department: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]

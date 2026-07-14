@@ -51,6 +51,12 @@ client-side dashboard component):
 2. **Audit Log** — The full, filterable, expandable table of every logged request:
    session id, timestamp, department, entities detected, risk score, and decision,
    with a row-expand for the reason string, AI model used, and response-scan result.
+   For a flagged low-confidence row (`blocked_low_confidence` or `redacted_low_
+   confidence_review`), the row-expand also lets a `compliance_admin` or
+   `department_reviewer` confirm or overturn it with optional reasoning — the
+   active learning loop (product-depth task, Part 3; see
+   [Questions.md](../Questions.md) item 25). Once recorded, that judgment shows
+   inline instead of the confirm/overturn buttons.
 3. **Fairness Audit** — Bar charts comparing flag rates by session language and by
    department, alongside the computed Disparate Impact Ratio and Statistical Parity
    Difference, with an inline alert when DIR falls below the 0.80 threshold.
@@ -77,7 +83,9 @@ client-side dashboard component):
    audit log, fairness metrics, and drift history together, formatted plainly enough
    to hand to an external auditor or regulator without further editing. Also
    live-only, same reasoning as Policy Builder — see
-   [Questions.md](../Questions.md) item 24.
+   [Questions.md](../Questions.md) item 24. A second panel on the same view,
+   "Labelled Dataset (Active Learning)", exports every recorded confirm/overturn
+   judgment from the Audit Log's row-expand as CSV or JSONL — see item 25.
 
 ## Information architecture
 

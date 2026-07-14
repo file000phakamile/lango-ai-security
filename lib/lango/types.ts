@@ -44,6 +44,24 @@ export type Decision =
 /// do not conflate this with `Decision`.
 export type SensitivityClass = "standard" | "special_category_health";
 
+/// Active learning loop (product-depth task, Part 3) — a human reviewer's
+/// recorded confirm/overturn judgment on a flagged low-confidence row, if
+/// one has been recorded. Optional (not present, not `null`, in the mock
+/// generator's rows) so `lib/lango/mock-data.ts` doesn't need changes —
+/// "no review recorded yet" and "mock data has no review concept at all"
+/// are both simply the absence of this field.
+export interface ReviewDecisionInfo {
+  decision: "confirmed" | "overturned";
+  reasoning: string | null;
+  reviewerEmail: string;
+  createdAt: string;
+}
+
+/// `audit_log.decision` values eligible for a human confirm/overturn
+/// judgment — must match `REVIEWABLE_DECISIONS` in
+/// `backend/src/models.rs` exactly.
+export const REVIEWABLE_DECISIONS: Decision[] = ["blocked_low_confidence", "redacted_low_confidence_review"];
+
 export interface AuditLogEntry {
   id: string;
   user: string;
@@ -56,6 +74,7 @@ export interface AuditLogEntry {
   model: string;
   scan: string;
   sensitivityClass: SensitivityClass;
+  review?: ReviewDecisionInfo | null;
 }
 
 export interface RiskBand {

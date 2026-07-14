@@ -158,7 +158,7 @@ export function LangoDashboard() {
         </header>
         <div className="p-4 md:p-8">
           {view === "command" && <CommandCenter log={log} summary={data.summary} />}
-          {view === "audit" && <AuditLog log={log} />}
+          {view === "audit" && <AuditLog log={log} source={data.source} />}
           {view === "fairness" && (
             <FairnessAudit
               languageParity={data.languageParity}

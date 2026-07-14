@@ -98,6 +98,19 @@ async fn main() {
             "/api/compliance-export",
             get(routes::compliance_export::export),
         )
+        // Active learning loop (product-depth task, Part 3) — a human
+        // confirm/overturn judgment on a flagged low-confidence row
+        // (compliance_admin or department_reviewer, department-scoped for
+        // the latter), and the compliance_admin-only export of everything
+        // recorded so far.
+        .route(
+            "/api/audit-log/:id/review-decision",
+            post(routes::review_decisions::record_review_decision),
+        )
+        .route(
+            "/api/labelled-dataset",
+            get(routes::labelled_dataset::export),
+        )
         // No auth required — this is what render.yaml's healthCheckPath
         // (and any external uptime check) hits.
         .route("/health", get(|| async { Json(json!({"status": "ok"})) }))

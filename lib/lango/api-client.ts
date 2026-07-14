@@ -118,6 +118,12 @@ interface AuditLogPageResponse {
     model: string;
     scan: string;
     sensitivityClass: SensitivityClass;
+    review?: {
+      decision: "confirmed" | "overturned";
+      reasoning: string | null;
+      reviewerEmail: string;
+      createdAt: string;
+    } | null;
   }>;
   total: number;
 }
@@ -180,6 +186,7 @@ async function loadLiveDashboardData(): Promise<DashboardData> {
     model: r.model,
     scan: r.scan,
     sensitivityClass: r.sensitivityClass,
+    review: r.review ?? null,
   }));
 
   return {
@@ -380,6 +387,46 @@ export async function downloadComplianceExport(
   const disposition = res.headers.get("content-disposition") ?? "";
   const match = disposition.match(/filename="([^"]+)"/);
   const filename = match ? match[1] : `lango-compliance-export.${format}`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// Active learning loop (product-depth task, Part 3) — recording a human
+// confirm/overturn judgment on a flagged low-confidence audit_log row
+// (`AuditLog`'s row-expand calls this), and downloading everything recorded
+// so far as a labelled dataset (same download-via-anchor pattern as
+// `downloadComplianceExport` above, reused rather than duplicated).
+// ---------------------------------------------------------------------------
+
+export async function recordReviewDecision(
+  auditLogId: string,
+  decision: "confirmed" | "overturned",
+  reasoning: string | undefined,
+): Promise<void> {
+  await authedRequest(`/api/audit-log/${auditLogId}/review-decision`, "POST", { decision, reasoning });
+}
+
+export async function downloadLabelledDataset(format: "csv" | "jsonl"): Promise<void> {
+  const token = await login();
+  const res = await fetch(`${API_BASE}/api/labelled-dataset?format=${format}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(detail?.error?.message ?? `labelled dataset export failed: HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : `lango-labelled-dataset.${format}`;
 
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

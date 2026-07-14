@@ -91,7 +91,11 @@ the target, that gap is stated directly rather than glossed over.
    date range — CSV (complete dataset, correctly quoted/escaped via the `csv`
    crate) or PDF (readable summary, built with `printpdf`, no external font
    file needed). `GET /api/audit-log` (paginated JSON) remains the live
-   dashboard's own read path and is unaffected by this addition.
+   dashboard's own read path and is unaffected by this addition. A second,
+   separate export exists for the active learning loop (product-depth task,
+   Part 3): `GET /api/labelled-dataset` (CSV or JSONL, `compliance_admin`
+   only) exports every recorded human confirm/overturn judgment — see item
+   below and [Questions.md](../Questions.md) item 25.
 7. **External services / costs / dependencies listed** — Deployed v0.1: Vercel
    (frontend hosting) and Render (backend web service + managed Postgres), both on
    free tiers — no cost today, but see docs/DEPLOYMENT_PLAN.md's free-tier honesty
