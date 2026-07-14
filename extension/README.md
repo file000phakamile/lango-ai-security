@@ -10,17 +10,22 @@ everywhere else in this project.
 install-and-use walkthrough for a first-time user (judge, mentor, tester), rather than
 this file's developer-facing architecture/verification detail.
 
-## Scope: five sites, one verified
+## Scope: five sites, two verified with a real loaded extension
 
-This extension implements five sites:
+This extension implements five sites, three of which ("response scanning + observability
++ hardening" task) also scan the AI's reply, not just the outgoing prompt:
 
-| Site | Status |
-|---|---|
-| chatgpt.com | **Verified working** — driven against a real, logged-in browser session (see Verification below) |
-| claude.ai | Implemented, **not yet verified** against a live page |
-| gemini.google.com | Implemented, **not yet verified** against a live page |
-| chat.deepseek.com | Implemented, **not verified** — confirmed *unreachable* from this dev environment by two independent methods (headless-browser navigation and a plain HTTP fetch both blocked, the latter by an active AWS WAF challenge) — see `content/deepseek-adapter.js`'s header comment |
-| copilot.microsoft.com (consumer web chat — not GitHub Copilot) | Implemented, extension itself not verified, but the composer selector is **confirmed against a real fetch of the live page's HTML** (`textarea#userInput`, `data-testid="composer-input"`) — see `content/copilot-adapter.js`'s header comment |
+| Site | Prompt scanning | Response scanning |
+|---|---|---|
+| chatgpt.com | **Verified working** — driven against a real, logged-in browser session (see Verification below) | Implemented, **not verified** — chatgpt.com itself remains unreachable for a full session (see below); response-turn selector is a moderate-confidence guess based on a widely-documented convention, not live-checked |
+| gemini.google.com | **Verified working** — a full real extension, loaded and driven against a live, production, anonymous gemini.google.com session, including a real prompt→scan→send→reply→response-scan→banner round trip (see Verification below) | **Verified working**, same real session — composer and response-turn selectors both confirmed against live DOM, real streaming-timing data measured and used to set the debounce window |
+| claude.ai | Implemented, **not yet verified** against a live page — still fully blocked by both methods tried (see below) | Implemented, **not verified**, and lower confidence than chatgpt.com's guess — no comparably well-established public convention for claude.ai's response markup to base it on |
+| chat.deepseek.com | Implemented, **not verified** — confirmed *unreachable* from this dev environment by two independent methods (headless-browser navigation and a plain HTTP fetch both blocked, the latter by an active AWS WAF challenge) — see `content/deepseek-adapter.js`'s header comment | Out of scope — response scanning was added for chatgpt.com, claude.ai, and gemini.google.com only |
+| copilot.microsoft.com (consumer web chat — not GitHub Copilot) | Implemented, extension itself not verified, but the composer selector is **confirmed against a real fetch of the live page's HTML** (`textarea#userInput`, `data-testid="composer-input"`) — see `content/copilot-adapter.js`'s header comment | Out of scope, same reason as chat.deepseek.com |
+
+**gemini.google.com's verification is a genuine, unexpected step up from every other
+site**, not an incremental improvement — see the Verification section below for exactly
+what this means and what it doesn't.
 
 The code is structured with a site-adapter interface (`content/site-adapter.js`
 defines the contract; each `content/<site>-adapter.js` implements it for one site)
@@ -79,6 +84,19 @@ site-specific honest confidence assessment — they are not all equally uncertai
    for-review, red `#A83A3A` = blocked, green `#2F7A53` = cleared). Non-blocking
    outcomes auto-dismiss after a few seconds; blocked/error banners stay until you
    take action.
+5. **On chatgpt.com, claude.ai, and gemini.google.com** (product-depth task, "response
+   scanning + observability + hardening"): once the AI's reply has finished streaming
+   in and settles — detected by watching for a pause in DOM mutations, since there's
+   no single event that means "the response is done" — `content/response-scanner.js`
+   reads its final text and sends it to `POST /api/scan/response`, correlated to the
+   audit_log row the originating prompt scan created. If it's flagged (a leaked
+   secret, a sensitive entity that shouldn't appear in a reply, anything that looks
+   unsafe), an amber warning banner appears — but **the AI's actual response is never
+   modified, hidden, or altered**. See `detection::scan::scan_response`'s doc comment
+   and `docs/ARCHITECTURE.md` for the full reasoning on why covertly changing content
+   the user didn't write is a different, more concerning kind of intervention than
+   redacting their own outgoing prompt. A clean response shows no banner at all —
+   deliberately silent, so a banner only ever means something worth reading.
 
 ## Architecture
 
@@ -96,13 +114,20 @@ extension/
                             logic, and a LANGO_PING responder the popup uses to
                             confirm a content script is actually running on the
                             active tab) — site-independent
-    chatgpt-adapter.js       chatgpt.com-specific DOM hooks — VERIFIED, see
+    response-scanner.js     Shared response-scanning orchestration (product-depth
+                            task, Part 1) — MutationObserver-based debounce,
+                            correlates a stabilised response back to its prompt
+                            scan, calls POST /api/scan/response — loaded only for
+                            chatgpt.com, claude.ai, gemini.google.com
+    chatgpt-adapter.js       chatgpt.com-specific DOM hooks — prompt side
+                            VERIFIED, response side NOT verified, see
                             Verification below
     claude-adapter.js        claude.ai-specific DOM hooks — UNVERIFIED, see
                             Known fragility and the file's own header comment
-    gemini-adapter.js        gemini.google.com-specific DOM hooks — UNVERIFIED,
-                            with an additional known Shadow DOM risk — see the
-                            file's own header comment
+    gemini-adapter.js        gemini.google.com-specific DOM hooks — VERIFIED
+                            against a real, live, anonymous session (both
+                            composer and response-turn selectors) — see
+                            Verification below
     deepseek-adapter.js      chat.deepseek.com-specific DOM hooks — UNVERIFIED,
                             and the least confident of the four newer adapters
                             — see the file's own header comment
@@ -157,7 +182,78 @@ For the plain-language version of these same steps (no dev background assumed), 
 
 ## Verification — what was and wasn't actually tested
 
-Read this section before trusting the chatgpt.com-specific part of this extension.
+Read this section before trusting any specific site-adapter file in this extension.
+
+### gemini.google.com — a real, loaded extension, driven end-to-end
+
+**A previous version of this section stated that Playwright's Chromium "does not
+support extensions at all" in this environment. That was wrong — not because
+anything about the environment changed, but because the wrong Playwright API was
+used to test it.** `chromium.launch()` does not reliably support loading unpacked
+MV3 extensions; `chromium.launchPersistentContext(userDataDir, { args:
+["--disable-extensions-except=<path>", "--load-extension=<path>", "--headless=new"]
+})` does, and worked on the first attempt during the response-scanning task
+("response scanning + observability + hardening"): a real background service
+worker (`chrome-extension://.../background.js`) registered, and a real content
+script logged `[Lango] content script active on gemini.google.com` in the page
+console. See Questions.md item 26 for the full trail, including why the earlier
+conclusion was reached in good faith with the tool available at the time.
+
+**gemini.google.com also turned out to be reachable, and — unexpectedly — usable
+without logging into a Google account at all.** `https://gemini.google.com/`
+returns a real HTTP 200 (chatgpt.com and claude.ai remain blocked, see below) and
+serves a working, anonymous "Ask Gemini" composer that accepts real prompts and
+returns real model replies. This made a genuine, live, end-to-end test possible —
+the first time any of this extension's five sites has had one:
+
+1. Loaded the real, unpacked extension via `launchPersistentContext`, injected a
+   fake JWT directly into the extension's own `chrome.storage.local` (via
+   `serviceWorker.evaluate()`, bypassing only the login UI — not the interception
+   logic), pointed `apiBaseUrl` at a tiny local mock server whose response
+   *shapes* exactly mirror the real backend's (`models::ScanResponse` /
+   `ScanResponseCheckResponse` — this tests the extension's own logic for real,
+   not the detection engine, which has its own separate real backend test suite).
+2. Typed a real prompt into the real, live Gemini composer and pressed Enter.
+   Lango's real capture-phase interception fired, scanned it (via the mock),
+   showed the correct "no sensitive entities — sending" banner, and then
+   genuinely re-sent it — confirmed by a real query bubble appearing in Gemini's
+   own UI with the exact text, proving the interception's
+   `preventDefault`/`stopPropagation`/`stopImmediatePropagation` really did stop
+   Gemini's own send handler on the first pass (the bubble did not appear until
+   the deliberate resend).
+3. Real Gemini produced a real reply. `content/response-scanner.js`'s
+   `MutationObserver` + debounce + `findLatestResponseTurn` correctly detected it
+   stabilise and called the mock `/api/scan/response` with the **correct
+   correlated `audit_log_id`** (confirmed by the mock server's own request log)
+   and the exact clean response text.
+4. Mock set to return `flagged: true` → the real warning banner appeared,
+   verbatim, in the real page (screenshotted). Mock reset to `flagged: false`,
+   full sequence re-run → no banner at all, confirming the deliberate silence on
+   a clean response.
+
+**Composer and response selectors were separately confirmed against real, live
+DOM** (not just "the flow completed," but the actual markup inspected directly):
+`rich-textarea .ql-editor[contenteditable="true"]` for the composer (the Shadow
+DOM risk this file used to warn about did not materialise — plain
+`querySelector` sees through fine), `message-content` for the response text
+(confirmed to hold clean text with no UI-chrome noise, and confirmed correct
+chronological ordering across a real two-turn conversation). A real streaming
+response was also measured directly: a 6-sentence reply took ~7.8 seconds to
+fully stream, with individual pauses between mutation bursts as long as 2906ms
+while still actively arriving — this measurement is what `DEBOUNCE_MS = 4000` in
+`content/response-scanner.js` is actually based on, not a guess. Full numbers in
+Questions.md item 26.
+
+**What this gemini.google.com verification does NOT cover, stated plainly:** a
+real, logged-in Google account session (only the anonymous path was tested — a
+logged-in session's DOM could differ); `findSendButton` (Enter-key submission was
+used throughout, never a button click); the `writeText` redaction path (the mock
+always returned `cleared_no_entities`, so a redacted-and-resend was never
+exercised in this specific test); and the real backend's detection engine in this
+exact integration context (covered separately by `cargo test`, not by this
+browser session).
+
+### chatgpt.com — prompt side verified (earlier work), response side not
 
 **Verified, directly, against the live production backend** (not simulated): the
 actual `background.js` file's `login()` and `scanPrompt()` functions were loaded
@@ -182,33 +278,32 @@ chatgpt.com's DOM — actually works:
 - `/api/scan` called against an unreachable host → fails closed (`network_error`),
   does not silently proceed.
 
-**NOT verified**: the extension was never loaded as a real browser extension and
-driven against a live chatgpt.com page. Two independent things blocked this, tried in
-this order:
-
-1. **chatgpt.com itself is unreachable from this environment.** Every attempt (both
-   headless and a forced non-headless launch) to load `https://chatgpt.com` was
-   stopped by a Cloudflare bot-check interstitial ("Just a moment...") before the real
-   app ever loaded — and there is no OpenAI account available to log in with even if
-   that were bypassed.
-2. **Loading the unpacked extension itself failed in this sandbox, separately from
-   issue 1.** Playwright's default headless mode uses a stripped-down "headless
-   shell" Chromium build that does not support extensions at all — no service worker
-   ever registered, confirmed via direct CDP `Target.getTargets` polling (empty every
-   time). Forcing the full Chromium binary via `headless: false` + Chrome's own
-   `--headless=new` flag (the documented workaround) launched successfully but still
-   registered no extension target — this environment has no display server, and that
-   combination did not resolve it either. See Questions.md for the full trail.
+**NOT verified with a real loaded extension**: unlike gemini.google.com (above),
+chatgpt.com itself remains unreachable from this environment — re-checked during the
+response-scanning task, not assumed stale. A headless-browser navigation to
+`https://chatgpt.com` still gets stopped by a Cloudflare bot-check interstitial
+("Just a moment...") before the real app ever loads. A raw, unauthenticated HTTP
+fetch (the same technique that worked for copilot.microsoft.com in an earlier pass)
+DID succeed this time — HTTP 200, ~490KB of real app-shell HTML — and confirmed
+`#prompt-textarea` is still the current, real composer id, which is genuinely new
+information. But that page is the logged-out landing shell (it has a visible
+"Sign in"/"Sign up" pair, not a conversation), so it could not confirm anything
+about response-turn markup, and there is no OpenAI account available to get past
+that shell regardless. (Loading the *extension itself* is no longer the blocker
+here — see the gemini.google.com section above for the methodology correction;
+`chatgpt.com` specifically remains unreachable as a full, authenticated session.)
 
 **What this means practically**: the DOM-interception logic in
 `content/chatgpt-adapter.js` — finding the composer, finding the send button, reading
-and writing its text — is written from best-effort knowledge of chatgpt.com's
-publicly documented UI patterns, but has not been confirmed against a live, logged-in
-chatgpt.com session by anyone. **You should verify this yourself** using the manual
-steps above before relying on it. If it doesn't work, the file's own comments point at
-exactly which selectors to check first (`content/chatgpt-adapter.js`'s `findComposer`
-and `findSendButton`), and at the specific contenteditable-vs-textarea uncertainty in
-`writeText`.
+and writing its text, and (new in this task) finding the latest response turn via
+`[data-message-author-role="assistant"]` — is written from best-effort knowledge of
+chatgpt.com's publicly documented UI patterns. The composer id is now confirmed
+current; the response-turn selector is a moderate-confidence guess (a widely and
+consistently documented convention across several years of public tooling, stronger
+than most guesses in this project, but still genuinely unverified against a live
+session). **You should verify this yourself** using the manual steps above before
+relying on it. If it doesn't work, the file's own comments point at exactly which
+selectors to check first.
 
 ## Known fragility
 
@@ -237,22 +332,37 @@ be fixed later:
   reason — there's nothing meaningful to assert against without a real, live
   chatgpt.com DOM to run against. `background.js`'s logic is the part that was
   actually verified (see above).
-- **The four newer adapters (`claude-adapter.js`, `gemini-adapter.js`,
-  `deepseek-adapter.js`, `copilot-adapter.js`) carry every limitation above, plus
-  they've never had chatgpt.com's level of scrutiny — no live *extension* verification
-  attempt was possible for any of the five, but chatgpt.com's selectors are at least
-  based on a long-stable, widely-documented convention (`#prompt-textarea`). The other
-  four are comparatively fresher guesses, with meaningfully different confidence
-  levels between them — read each file's own header comment rather than assuming
-  they're all equally likely to work. `gemini-adapter.js` in particular calls out a
-  specific structural risk (a possible closed Shadow DOM around Gemini's composer)
-  that could mean it doesn't work at all, not just "might break later" the way the
-  others might. A later verification pass raised `copilot-adapter.js`'s confidence
-  specifically (its composer selector was confirmed against a real, direct fetch of
-  copilot.microsoft.com's current HTML — see that file's own header comment) and
-  confirmed `deepseek-adapter.js` remains not just unverified but genuinely
-  unreachable from this dev environment (blocked by an active AWS WAF challenge, not
-  merely "never tried") — see Questions.md for the full investigation.
+- **The other adapters carry different confidence levels — read each file's own
+  header comment rather than assuming they're all equally likely to work.**
+  `gemini-adapter.js` is now the exception to most of this section: its composer and
+  response selectors were confirmed against a real, live, loaded-extension session
+  (see Verification above), including confirming that the closed-Shadow-DOM risk this
+  file used to warn about does NOT apply — `document.querySelector` sees through
+  fine. `claude-adapter.js` and `deepseek-adapter.js` remain the least confident —
+  claude.ai is still fully blocked by every method tried (a raw fetch now redirects to
+  `/login` and 403s even there, not just a silent block), and `deepseek-adapter.js` is
+  confirmed genuinely unreachable (an active AWS WAF challenge, not merely "never
+  tried"). `copilot-adapter.js`'s composer selector was confirmed against a real,
+  direct fetch of copilot.microsoft.com's current HTML in an earlier pass. See
+  Questions.md for the full investigation trail behind each of these.
+- **Response scanning (the three sites it was added to) is a genuinely harder DOM
+  problem than prompt interception, and is fragile in a different way** — stated
+  plainly, per this task's own instruction to be honest about the added complexity.
+  Prompt interception reacts to one well-defined user action (Enter/Send) on an
+  element whose content is already final the instant that happens. A response
+  streams in over several seconds with no equivalent "done" event; `content/
+  response-scanner.js` approximates it with a debounce (see its own doc comment for
+  the real, measured timing data behind `DEBOUNCE_MS`), which is a heuristic, not a
+  guarantee — an unusually long pause mid-stream on a very long response could still
+  cause a premature scan of truncated text, and this has only been measured against
+  one site (gemini.google.com) out of the three it's used on. The prompt-to-response
+  correlation mechanism (`LangoSiteAdapter.setLastScanId`/`getLastScanId`, a single
+  mutable slot) is also a known, accepted simplification: it handles the common
+  "one prompt, wait for the reply, then the next" pattern correctly, but a user
+  sending a second prompt before the first response has stabilised can cause a
+  response scan to attribute to the wrong audit_log row. See Questions.md item 26 for
+  the full design reasoning and everything this specific verification pass did and
+  did not confirm.
 
 ## Local development
 

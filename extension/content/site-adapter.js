@@ -16,6 +16,17 @@
 //     framework state (React, etc.) the site's own JS relies on — see each
 //     adapter's own comments for the specific trick this requires.
 //
+// Optional, for the three sites response-scanning was added to (product-
+// depth task "response scanning + observability + hardening", Part 1) —
+// chatgpt.com, claude.ai, gemini.google.com; see content/response-scanner.js:
+//
+//   findLatestResponseTurn(): HTMLElement | null
+//     Returns the DOM element containing the most recent AI response turn
+//     (not the whole conversation history), or null if none is present
+//     yet. Response-scanner.js re-queries this on every DOM mutation and
+//     debounces until it stops changing — see that file's own doc comment
+//     for the full design and its honestly-stated limitations.
+//
 // This split exists so a second site could be added later by writing one new
 // adapter file plus one manifest content_scripts entry, without touching
 // this file — which is exactly how claude.ai, gemini.google.com,
@@ -36,6 +47,22 @@
 
 const LangoSiteAdapter = (() => {
   let bypassNextEvent = false;
+  // Response scanning ("response scanning + observability + hardening"
+  // task, Part 1): the audit_log id of the most recent prompt scan that
+  // actually sent something — read by content/response-scanner.js (loaded
+  // alongside this file, sharing the same isolated-world scope) to
+  // correlate a stabilised response back to the prompt that produced it.
+  // See that file's own doc comment for the known limitation this simple,
+  // single-slot approach has with rapid multi-prompt sessions.
+  let lastScanId = null;
+
+  function setLastScanId(id) {
+    lastScanId = id;
+  }
+
+  function getLastScanId() {
+    return lastScanId;
+  }
 
   function init(adapter) {
     document.addEventListener("keydown", (e) => onKeydown(e, adapter), true);
@@ -120,6 +147,15 @@ const LangoSiteAdapter = (() => {
     }
 
     const result = response.data;
+    // Response scanning (product-depth task, Part 1): every decision below
+    // that actually sends the prompt records this scan's audit_log id so
+    // content/response-scanner.js can correlate the AI's reply, once it
+    // stabilises, back to this exact turn. `blocked_low_confidence` (below)
+    // deliberately does NOT reach this line — nothing was sent, so there is
+    // no response to ever correlate.
+    if (result.decision !== "blocked_low_confidence") {
+      LangoSiteAdapter.setLastScanId(result.id);
+    }
     switch (result.decision) {
       case "cleared_no_entities":
         showBanner("Lango: no sensitive entities detected — sending", "cleared", { autoDismiss: true });
@@ -198,5 +234,5 @@ const LangoSiteAdapter = (() => {
     }
   }
 
-  return { init };
+  return { init, setLastScanId, getLastScanId };
 })();

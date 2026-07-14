@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Lango — AI Data Guard",
-  "version": "0.2.0",
-  "description": "Scans AI chat prompts for sensitive entities (national IDs, bank accounts, phone numbers, etc.) and redacts or blocks before sending. v0.1 — chatgpt.com verified working; claude.ai, gemini.google.com, chat.deepseek.com, and copilot.microsoft.com implemented but not yet verified against live pages.",
+  "version": "0.3.0",
+  "description": "Scans AI chat prompts AND responses for sensitive entities (national IDs, bank accounts, phone numbers, leaked secrets, etc.) and redacts or blocks before sending, or warns after receiving. Response scanning covers chatgpt.com, claude.ai, and gemini.google.com; chat.deepseek.com and copilot.microsoft.com remain prompt-scanning only. See extension/README.md for per-site verification status.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -36,6 +36,7 @@
       "js": [
         "content/ui-banner.js",
         "content/site-adapter.js",
+        "content/response-scanner.js",
         "content/chatgpt-adapter.js"
       ],
       "run_at": "document_idle"
@@ -45,6 +46,7 @@
       "js": [
         "content/ui-banner.js",
         "content/site-adapter.js",
+        "content/response-scanner.js",
         "content/claude-adapter.js"
       ],
       "run_at": "document_idle"
@@ -54,6 +56,7 @@
       "js": [
         "content/ui-banner.js",
         "content/site-adapter.js",
+        "content/response-scanner.js",
         "content/gemini-adapter.js"
       ],
       "run_at": "document_idle"

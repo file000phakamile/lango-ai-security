@@ -55,12 +55,20 @@ What's still a deliberate v0.1 simplification, stated plainly: the backend's own
 Gateway" pipeline stage remains a labeled no-op — the Rust backend itself still never
 calls an AI provider's API server-side (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
 **Separately, a real interception mechanism now exists in front of AI providers' own
-web UIs**: [`extension/`](extension/) is a Manifest V3 browser extension that scans
-and redacts/blocks prompts *in the browser*, before they ever reach the site's own
-send action. It implements five sites — **chatgpt.com is verified working** in a real
-browser session; **claude.ai, gemini.google.com, chat.deepseek.com, and
-copilot.microsoft.com (Microsoft's consumer web chat, not GitHub Copilot) are
-implemented but not yet verified** against a live page (see
+web UIs, covering both halves of the pipeline**: [`extension/`](extension/) is a
+Manifest V3 browser extension that scans and redacts/blocks prompts *in the browser*
+before they ever reach the site's own send action (**Prompt Scanner** in the pipeline
+description above), and — as of the "response scanning + observability + hardening"
+task — also scans the AI's reply once it finishes rendering, on chatgpt.com, claude.ai,
+and gemini.google.com (**Response Scanner**): a flagged reply gets a plain-language
+warning banner, but the AI's actual response is never modified, hidden, or altered —
+see `detection::scan::scan_response`'s doc comment and the Response scanning section
+below for the full reasoning. It implements five sites for prompt scanning —
+**chatgpt.com is verified working** in a real browser session; **gemini.google.com is
+now ALSO verified working, end-to-end, including response scanning** (a real, loaded
+extension driven against a live, anonymous gemini.google.com session — see
+[Questions.md](Questions.md) item 26); **claude.ai, chat.deepseek.com, and
+copilot.microsoft.com are implemented but not yet verified** against a live page (see
 [extension/README.md](extension/README.md) for exactly what was and wasn't tested, and
 [extension/USER_GUIDE.md](extension/USER_GUIDE.md) for a plain-language walkthrough).
 This answers the "nothing intercepts real AI traffic yet" gap for these sites, through
@@ -207,6 +215,44 @@ Compliance Export view) for future rule-tuning. **This only captures the signal 
 nothing in this codebase retrains or fine-tunes anything automatically from it**,
 by explicit task scope; that's future work. See [Questions.md](Questions.md) item
 25 for the eligibility/scoping judgment calls.
+
+### Response scanning (v0.1)
+
+**The second half of the pipeline** — closing out a known limitation that has been
+documented since early in this project. The browser extension now scans the AI's
+reply, not just the user's outgoing prompt, on chatgpt.com, claude.ai, and
+gemini.google.com: once a reply finishes streaming in (detected by debouncing DOM
+mutations — there's no single "response complete" event, since replies arrive
+incrementally, not as one block — see `content/response-scanner.js`), its text is
+sent to `POST /api/scan/response` (`backend/src/detection/scan.rs`'s `scan_response`,
+reusing the exact same detector pipeline the prompt side uses) and checked for leaked
+secrets, sensitive entities that shouldn't appear in a reply, or anything else
+flagged by the existing detection engine.
+
+**A flagged response is never modified, hidden, or redacted — only flagged with a
+warning banner, deliberately.** Silently rewriting or hiding content the user did
+not write themselves, after they've already been shown it, is a materially
+different and more concerning kind of intervention than redacting an outgoing
+prompt before it's ever sent: redaction prevents a leak that hasn't happened yet,
+while covertly altering a received response would mean the tool deciding, after the
+fact, what a person is and isn't allowed to have read. See `scan_response`'s own doc
+comment and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full reasoning.
+
+**Honest confidence assessment, stated plainly per this task's own instruction**:
+response scanning is a genuinely harder DOM problem than prompt interception (no
+single "done" event, a debounce heuristic instead), and this was reflected in real
+testing, not just claimed. gemini.google.com's response scanning was verified
+end-to-end against a real, live, anonymous session — a real prompt was sent, a real
+reply arrived, the extension correctly detected it stabilise, scanned it, and showed
+the correct warning banner (or correctly stayed silent for a clean reply) — including
+real, measured streaming-timing data (individual pauses up to ~2.9 seconds mid-stream
+on one real response) that directly set the debounce window. chatgpt.com's and
+claude.ai's response-side selectors remain unverified against a live session (both
+sites are still unreachable from this project's environment) — see
+[extension/README.md](extension/README.md) and [Questions.md](Questions.md) item 26
+for the complete verification trail, including a methodology correction to an earlier
+session's incorrect conclusion that extensions couldn't be loaded in this environment
+at all.
 
 ## Data
 
@@ -392,16 +438,22 @@ Stated plainly, not softened:
 - **The backend's own "AI Gateway" stage is still a labeled no-op** (`ai_model_used`
   is always the literal string documenting that no provider is connected) — the Rust
   backend itself never calls an AI provider's API server-side. **What does now exist**:
-  [`extension/`](extension/), a browser extension that intercepts prompts client-side
-  in front of five AI providers' web UIs and redacts/blocks them before they're sent —
-  a real, working, differently-architected answer to "does anything actually gate real
-  AI traffic yet." **Only chatgpt.com's DOM-dependent parts have been verified**
-  against a live session; **claude.ai, gemini.google.com, chat.deepseek.com, and
-  copilot.microsoft.com are implemented but not yet verified** against live pages —
-  this distinction matters and is not collapsed anywhere it's mentioned. See
+  [`extension/`](extension/), a browser extension that intercepts prompts AND (as of
+  the "response scanning + observability + hardening" task) responses client-side in
+  front of AI providers' web UIs — prompts are redacted/blocked before they're sent,
+  responses are flagged with a warning banner (never modified) after they render — a
+  real, working, differently-architected answer to "does anything actually gate real
+  AI traffic yet." **chatgpt.com's prompt-side interception has been verified**
+  against a live session (earlier pass); **gemini.google.com is now ALSO verified,
+  end-to-end, for BOTH prompt and response scanning** against a real, live, anonymous
+  session (this task — see [Questions.md](Questions.md) item 26); **claude.ai,
+  chat.deepseek.com, and copilot.microsoft.com remain implemented but not verified**
+  against live pages, and chatgpt.com's own response-side selectors are likewise
+  unverified (chatgpt.com itself is still unreachable for a full session) — this
+  distinction matters and is not collapsed anywhere it's mentioned. See
   [extension/README.md](extension/README.md)'s Verification and Known fragility
   sections, and each `content/<site>-adapter.js` file's own header comment, before
-  relying on any one of the four unverified sites.
+  relying on any one of the unverified sites or code paths.
 - **No live security-event detection.** Prompt-injection/rate-limit/DoS detection is
   not implemented; the Security Events table is seeded with illustrative example rows
   (see `backend/src/bin/seed.rs`), not produced by a live detector.

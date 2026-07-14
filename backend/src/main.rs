@@ -59,6 +59,9 @@ async fn main() {
         .route("/api/organisations/signup", post(routes::organisations::signup))
         .route("/api/consent/accept", post(routes::consent::accept_consent))
         .route("/api/scan", post(routes::scan::scan))
+        // Response scanning (product-depth task, Part 1) — the second half
+        // of the pipeline; see routes/response_scan.rs.
+        .route("/api/scan/response", post(routes::response_scan::scan_response_handler))
         .route("/api/audit-log", get(routes::audit_log::get_audit_log))
         .route("/api/fairness", get(routes::fairness::get_fairness))
         .route("/api/drift", get(routes::drift::get_drift))

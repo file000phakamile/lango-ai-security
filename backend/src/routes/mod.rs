@@ -9,6 +9,7 @@ pub mod health;
 pub mod labelled_dataset;
 pub mod organisations;
 pub mod policy;
+pub mod response_scan;
 pub mod review_decisions;
 pub mod scan;
 pub mod security_events;

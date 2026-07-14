@@ -15,13 +15,20 @@ Read this before doing anything else.
   tested at scale, and several of the sites it supports (see below) have never been
   confirmed against a real browser session.
 - **It's a browser extension** (Chrome or Edge, Manifest V3). As of this pass, it
-  supports five AI chat sites:
-  - **chatgpt.com** — implemented **and verified working** in a real browser session.
-  - **claude.ai**, **gemini.google.com**, **chat.deepseek.com**, and
-    **copilot.microsoft.com** (Microsoft's consumer web chat — not GitHub Copilot,
-    a separate, mostly IDE-embedded product this extension does not target) — all
-    **implemented, but not yet verified** against a real, logged-in page. See
-    [Caveats](#6-caveats) below before relying on any of these four.
+  supports five AI chat sites, and scans the AI's *reply* (not just your prompt) on
+  three of them:
+  - **chatgpt.com** — prompt scanning implemented **and verified working** in a real
+    browser session; response scanning implemented but not yet verified (chatgpt.com
+    itself remains unreachable for a full test — see [Caveats](#6-caveats)).
+  - **gemini.google.com** — **both prompt and response scanning verified working**,
+    driven end-to-end against a real, live gemini.google.com session (an anonymous
+    session, no Google account needed — see [Caveats](#6-caveats) for exactly what
+    that does and doesn't cover).
+  - **claude.ai**, **chat.deepseek.com**, and **copilot.microsoft.com** (Microsoft's
+    consumer web chat — not GitHub Copilot, a separate, mostly IDE-embedded product
+    this extension does not target) — **implemented, but not yet verified** against a
+    real, logged-in page. See [Caveats](#6-caveats) below before relying on any of
+    these three.
 - **There are two separate things in this project, for two different people —
   don't conflate them:**
   - **The extension** (what you're reading about right now) is what an **employee**
@@ -162,6 +169,21 @@ banner.) This banner does not auto-dismiss; you have to edit your prompt yoursel
 (e.g. remove or rephrase the account number) and submit again. Lango never retries
 this one automatically on your behalf.
 
+**After the AI replies — response scanning (chatgpt.com, claude.ai, gemini.google.com
+only).** A few seconds after the AI's reply finishes appearing on screen (Lango waits
+for it to stop changing before checking it — see the Caveats section for why this
+can't be instant), Lango quietly scans the reply too. If it looks clean, you'll see
+**nothing at all** — no banner, on purpose, so a banner always means something worth
+reading. If the reply itself seems to contain something sensitive (a leaked secret, an
+entity that shouldn't be in a reply, anything that looks unsafe), you'll see an
+**amber** banner — "Lango: This response may contain \[...\]. Review it carefully
+before using or sharing it." **The AI's actual reply is never changed, hidden, or
+redacted by this** — you still see exactly what the AI said, in full; Lango is only
+ever adding a warning next to it, never editing what you were shown. This is a
+deliberate design choice: quietly rewriting something you've already read would be a
+much more concerning kind of intervention than declining to send something you were
+about to write.
+
 **If the backend is unreachable** — you'll see a **red** banner along the lines of
 "Lango: blocked — Failed to fetch. Prompt not sent." (the exact wording depends on
 your browser's own network-error message). Same as a genuine block: nothing is sent,
@@ -195,32 +217,46 @@ Stated plainly, not buried in fine print.
   This is a standing limitation of this whole approach (client-side DOM
   interception), true of every site listed here, not a one-off issue with a single
   site.
-- **Four of the five sites are implemented but genuinely unverified — read this
-  before relying on them.** claude.ai, gemini.google.com, chat.deepseek.com, and
-  copilot.microsoft.com were added using a best-effort, defensively written guess at
-  each site's current input/Send-button structure. **None of the four has been loaded
-  as a real extension and driven against a real, logged-in page** — this dev
-  environment still has no display server, so Chromium never registers an extension
-  service worker at all regardless of headless mode, re-confirmed directly (not just
-  assumed) in a later pass. That said, "unverified via the extension" isn't the same
-  as "no real information at all" for every site — a follow-up pass fetched
-  copilot.microsoft.com's raw page HTML directly (no browser automation involved) and
-  found the actual composer markup server-rendered in it: a plain `<textarea
-  id="userInput" data-testid="composer-input">`, matching (and sharpening) what the
-  adapter already guessed — see `content/copilot-adapter.js`'s header comment for the
-  exact finding. The same technique against chat.deepseek.com was blocked outright by
-  an active AWS WAF bot-verification challenge, confirming that site specifically
-  really is unreachable from here by any available method, not just unverified by
-  omission. Confidence varies noticeably by site — see each adapter file's own header
-  comment (`content/claude-adapter.js`, `content/gemini-adapter.js`,
-  `content/deepseek-adapter.js`, `content/copilot-adapter.js`) for the specific,
-  honest reasoning behind each one, including one (Gemini) with a known structural
-  risk — a possible closed Shadow DOM — that could mean it doesn't work *at all*, not
-  just "might break later." **If you plan to actually rely on Claude, Gemini,
-  DeepSeek, or Copilot support: test it yourself on a real page first**, the same way
-  chatgpt.com's support still needs a first real manual test too — copilot.microsoft.com's
-  composer selector is now better-founded than the others, but "better-founded" is
-  still not "confirmed working end to end."
+- **gemini.google.com has now actually been verified end-to-end — the others mostly
+  haven't, read this before relying on any of them.** During the response-scanning
+  pass ("response scanning + observability + hardening"), the real, unpacked
+  extension was loaded and driven against a real, live, anonymous gemini.google.com
+  session (Gemini allows this without a Google account) — a real prompt was
+  intercepted, scanned, sent, replied to, and the reply itself was scanned, with the
+  correct warning banner appearing for a flagged reply and correctly staying silent
+  for a clean one. This is the first time any of the five sites has had that level of
+  real, live confirmation. It does NOT cover a logged-in Google account session (only
+  anonymous was tested) or the Send-button/redaction-write code paths (Enter-key
+  submission was used throughout, and the test scenario never triggered a redaction).
+  claude.ai, chat.deepseek.com, and copilot.microsoft.com remain implemented using a
+  best-effort, defensively written guess at each site's current structure, unverified
+  the same way they were before this task — chatgpt.com's PROMPT side was verified in
+  an earlier pass (see section 1), but chatgpt.com's own RESPONSE-reading logic
+  (added in this task) has not been, since chatgpt.com itself is still unreachable
+  for a full session from this environment (re-checked, not assumed — a raw,
+  unauthenticated fetch did succeed this time and confirmed the composer id is still
+  current, but that page has no conversation on it to check response markup against).
+  A follow-up pass fetched copilot.microsoft.com's raw page HTML directly and found
+  the actual composer markup server-rendered in it, matching (and sharpening) what
+  the adapter already guessed — see `content/copilot-adapter.js`'s header comment.
+  The same technique against chat.deepseek.com was blocked outright by an active AWS
+  WAF challenge, and against claude.ai now redirects to `/login` and 403s even there —
+  both confirmed genuinely unreachable, not just unverified by omission. Confidence
+  varies noticeably by site and by prompt-vs-response — see each adapter file's own
+  header comment for the specific, honest reasoning behind each one. **If you plan to
+  rely on Claude, DeepSeek, or Copilot support, or chatgpt.com/claude.ai's response
+  scanning specifically: test it yourself on a real page first.**
+- **Response scanning is a harder problem than prompt scanning, on every site it
+  runs on, not just the unverified ones.** A response streams in over several
+  seconds with no single "it's done" signal the way pressing Enter is for a prompt;
+  the extension approximates "done" by watching for a pause in page changes (a
+  debounce), which is a real, measured, evidence-based choice for gemini.google.com
+  specifically (a real streamed response was timed and used to set this), but is a
+  heuristic, not a guarantee, and hasn't been separately measured for chatgpt.com or
+  claude.ai. An unusually long pause in the middle of a very long response could
+  still, in principle, cause the reply to be scanned before it's actually finished.
+  See `content/response-scanner.js`'s own comment and Questions.md item 26 for the
+  full reasoning.
 - **Only the five sites listed in section 1 are covered — nothing else.** This
   extension does not intercept anything happening in a desktop app, a mobile app, or
   an AI feature embedded *inside* another product — for example, GitHub Copilot

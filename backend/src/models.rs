@@ -192,6 +192,13 @@ pub struct ScanRequest {
 /// redact from, since it never had a real prompt to begin with).
 #[derive(Debug, Serialize)]
 pub struct ScanResponse {
+    /// The audit_log row's id — added for response scanning ("response
+    /// scanning + observability + hardening" task, Part 1) so the caller
+    /// (the browser extension) can correlate the AI's reply, once it
+    /// stabilises, back to the audit_log row this prompt scan created via
+    /// `POST /api/scan/response`. Not used by the dashboard/seed-data path,
+    /// which reads audit_log rows through `GET /api/audit-log` instead.
+    pub id: Uuid,
     pub entities_detected: Vec<String>,
     pub risk_score: f32,
     pub redacted_prompt: String,
@@ -216,6 +223,26 @@ pub struct ScanResponse {
     /// SensitivityClass axis (`detection::health_rules`). Independent from
     /// `decision`.
     pub sensitivity_class: String,
+}
+
+// ---------------------------------------------------------------------------
+// Response scanning ("response scanning + observability + hardening" task,
+// Part 1) — see routes/response_scan.rs and detection::scan::scan_response.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ScanResponseCheckRequest {
+    /// The `id` from the original `ScanResponse` (the audit_log row this
+    /// response belongs to) — see `ScanResponse::id`'s own doc comment.
+    pub audit_log_id: Uuid,
+    pub response_text: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ScanResponseCheckResponse {
+    pub flagged: bool,
+    pub user_message: String,
+    pub entities_detected: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------

@@ -46,10 +46,91 @@ Render) that's since been fixed. See also
 | **Backend** | **Real.** Rust + Axum HTTP API (`backend/`) implementing `/api/auth/login`, `/api/organisations/signup`, `/api/consent/accept`, `/api/scan`, `/api/audit-log`, `/api/fairness`, `/api/drift`, `/api/security-events`, `/api/command-center/summary`, `/api/health-data-guard/summary` — JWT-authenticated, role-gated, real error handling with a consistent JSON error shape. The AI Gateway pipeline stage is present as a labeled no-op (see AI layer row below), not a live call. | Same API surface, hardened: rate limiting, structured audit logging of admin actions, the AI Gateway stage actually forwarding to a live provider. |
 | **Database** | **Real, multi-tenant.** PostgreSQL via `sqlx`, migrations in `backend/migrations/`: `organisations`, `users`, `sessions`, `audit_log`, `detection_rules`, `security_events`, `drift_snapshots` — every tenant-scoped table carries an `organisation_id` foreign key, enforced by a real query-level filter on every endpoint, not just a schema column (see [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md)). Plus migration `0008` (health module) adding `audit_log.sensitivity_class` and `audit_log.facility_type` — see [HEALTH_MODULE.md](HEALTH_MODULE.md). `docker-compose.yml` spins up Postgres locally; `backend/src/bin/seed.rs` populates realistic sample data (all under one fixed demo organisation) by running synthetic prompts through the real detection engine. Raw prompt text is never stored — only a SHA-256 hash (`original_prompt_hash`) plus the redacted version. | Same schema, plus row-level security as defense-in-depth on top of the existing query-level filtering, retention policy enforcement, and backup/DR. |
 | **AI layer** | Rule-based pattern matching (real regexes, Luhn-checked credit cards, plus health-specific dictionary/context detectors — see [HEALTH_MODULE.md](HEALTH_MODULE.md)) + a **capitalized-word-sequence heuristic standing in for NER** (`backend/src/detection/name_heuristic.rs` — explicitly documented in its own doc comment as not real NER; a full transformer-based NER crate needs a native libtorch/onnxruntime dependency, too heavy for this v0.1 — see [Questions.md](../Questions.md)). No live generative-AI provider is connected — `ai_model_used` on every audit-log row is a literal string stating that plainly, not a fabricated model name. | Rule-based pattern matching + a real NER model (once a workable lightweight option exists, or the heavier dependency is judged worth it) for sensitive-entity detection — deliberately not a generative model itself, for explainability (see [DATA_AI_USAGE.md](DATA_AI_USAGE.md)). The sanitised prompt is then forwarded to whichever external generative AI provider the institution already uses; Lango does not replace that provider, it gates access to it. |
-| **Integrations** | One: [`extension/`](../extension/), a Manifest V3 browser extension that integrates with five AI chat sites' web UIs client-side (intercepting the composer's submit action, not a server-side connector) — chatgpt.com, claude.ai, gemini.google.com, chat.deepseek.com, copilot.microsoft.com (Microsoft's consumer web chat, not GitHub Copilot). Of these, **only chatgpt.com's DOM-dependent parts are verified against a live session**; the other four are implemented but not yet verified against live pages (see `extension/README.md` and `extension/USER_GUIDE.md`). No server-side connector to any AI provider's API exists; the backend's own AI Gateway stage remains a no-op. | Server-side connector(s) to the institution's chosen AI provider(s), in addition to (or instead of) the client-side extension approach; an alert/notification channel for drift and fairness alerts (see `.env.example`, `ALERT_WEBHOOK_URL`); potentially SSO/identity-provider integration for institutional login. |
+| **Integrations** | One: [`extension/`](../extension/), a Manifest V3 browser extension that integrates with five AI chat sites' web UIs client-side (intercepting the composer's submit action AND, as of the "response scanning + observability + hardening" task, the AI's reply once it renders — not a server-side connector either way) — chatgpt.com, claude.ai, gemini.google.com, chat.deepseek.com, copilot.microsoft.com (Microsoft's consumer web chat, not GitHub Copilot). Response scanning specifically covers chatgpt.com, claude.ai, and gemini.google.com. Of the five, **chatgpt.com's prompt-side interception is verified against a live session** (earlier pass), and **gemini.google.com is now verified end-to-end for both prompt AND response scanning** against a real, live, anonymous session — see [Questions.md](../Questions.md) item 26, including a methodology correction to an earlier session's incorrect conclusion that this environment couldn't load browser extensions at all. claude.ai, chat.deepseek.com, and copilot.microsoft.com remain implemented but not verified against live pages; chatgpt.com's own response-side selectors are likewise unverified (chatgpt.com itself remains unreachable for a full session — see `extension/README.md` and `extension/USER_GUIDE.md` for exactly what was and wasn't tested, per site and per direction). No server-side connector to any AI provider's API exists; the backend's own AI Gateway stage remains a no-op. | Server-side connector(s) to the institution's chosen AI provider(s), in addition to (or instead of) the client-side extension approach; an alert/notification channel for drift and fairness alerts (see `.env.example`, `ALERT_WEBHOOK_URL`); potentially SSO/identity-provider integration for institutional login. |
 | **Security** | JWT session tokens (real, `jsonwebtoken` crate) + Argon2 password hashing (real, `argon2` crate) + role-gated, organisation-scoped endpoints (`staff` / `department_reviewer` / `compliance_admin` — see [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md)). Real tenant isolation: every query filters by the caller's `organisation_id`, verified by dedicated cross-tenant isolation tests (`backend/tests/multi_tenant_isolation.rs`), not just a schema column that happens to exist. A data-use consent gate blocks `/api/scan` for any user who hasn't accepted their organisation's current consent policy (`backend/src/routes/consent.rs`). No prompt-injection detection, rate limiting, or DoS mitigation is implemented — the Drift & Security view's Security Events are seeded illustrative rows (`backend/src/bin/seed.rs`), not output from a live detector. | Same JWT/Argon2/tenant-isolation foundation, plus real prompt-injection detection, rate limiting, and DoS mitigation at the gateway. |
 | **Monitoring** | Real PSI / KL-divergence math (`backend/src/detection/drift.rs`, with unit tests) computed once at seed time over synthetic weekly entity-count distributions — no scheduled batch job exists yet, so this doesn't run continuously against live traffic. Real Disparate Impact Ratio / Statistical Parity Difference (`backend/src/routes/fairness.rs`) computed live, on every request, from actual `audit_log` rows grouped by department and language. | Same PSI/KL and DIR/SPD math, run by a real scheduled job against live traffic instead of seed-time synthetic data; security event logging from a live detector instead of seeded examples. |
 | **Outputs** | A real, queryable `audit_log` table — one row per `/api/scan` call, with entities detected, risk score, decision, reason string, model used, response-scan result, and a hash (never raw text) of the original prompt. `GET /api/audit-log` serves it paginated and filterable to the dashboard. **A structured, date-ranged compliance export now exists**: `GET /api/compliance-export` (`compliance_admin` only) produces a CSV (complete dataset) or PDF (readable summary, capped at 500 most recent audit rows) covering the audit log, fairness metrics, and drift history together for a selected date range — see the Policy Builder / Compliance Export dashboard view and [Questions.md](../Questions.md) item 24. | Same audit log and export mechanism, at production scale/retention. |
+
+## Response scanning (v0.1)
+
+**This closes out a known limitation documented since early in this project**: the
+pipeline only ever scanned what a user *sent*, never what the AI sent back. As of
+the "response scanning + observability + hardening" task, that's the second half of
+the pipeline, and it's real — not a fabricated demo stage.
+
+**Architecture, consistent with the rest of this project's honesty about what "the
+backend" does and doesn't do**: the Rust backend still never talks to an AI
+provider server-side (the AI Gateway pipeline stage remains a labeled no-op, as
+stated everywhere else in this document). Response scanning happens the same way
+prompt scanning does — client-side, in the browser extension — because the
+extension is the only part of this system that ever actually sees an AI provider's
+real, rendered reply. `content/response-scanner.js` watches the page for the
+response to finish rendering and submits its text to `POST /api/scan/response`
+(`backend/src/detection/scan.rs`'s `scan_response`), which reuses the exact same
+detector pipeline (`detect_all`) the prompt side uses — a leaked national ID or API
+key is exactly as real a finding in a reply as in a prompt, and a separate,
+parallel detector list would risk drifting from the real one over time. Covers
+chatgpt.com, claude.ai, and gemini.google.com; chat.deepseek.com and
+copilot.microsoft.com remain prompt-scanning only.
+
+**Why streaming responses are handled with a debounce, not a single event**: a
+prompt submission is one well-defined user action (Enter/Send) on text that's
+already final the instant it happens. A response has no equivalent moment — it
+arrives incrementally over several seconds, not as one block. `response-scanner.js`
+approximates "the response is done" by watching for a pause in DOM mutations long
+enough to be confident streaming has actually stopped, not merely paused mid-token.
+This is a heuristic, not a guarantee, and the specific debounce value used
+(`DEBOUNCE_MS = 4000`) is based on real, measured data — a live test against
+gemini.google.com recorded actual streaming mutation gaps up to ~2.9 seconds on one
+real response — not a guess; see [Questions.md](../Questions.md) item 26 for the
+full measurement and the honest caveat that this hasn't been separately measured
+for chatgpt.com or claude.ai.
+
+**Why a flagged response is never modified, redacted, or hidden — the central
+design decision of this feature, stated here explicitly as required.** There is no
+"redacted_response" concept anywhere in this codebase, and there will not be one
+without a deliberate, separately-justified decision to add it. When a response is
+flagged, the user sees a plain-language warning banner (the same honesty/no-jargon
+style already used on the prompt side — see `plain_language.rs`); the AI's actual
+reply, exactly as it rendered, is left completely alone.
+
+The reasoning: redacting an outgoing prompt prevents a leak that hasn't happened
+yet — the sensitive content never leaves the user's browser. A response is
+different in kind, not just in timing: by the time any scan could possibly run,
+the user has *already read* the real content. Covertly rewriting or hiding it at
+that point would mean the tool silently deciding, after the fact and without
+asking, what a person is and isn't allowed to have seen — a materially more
+concerning intervention than declining to send something before it's ever sent.
+This project's fail-closed principle throughout is about preventing sensitive data
+from leaving the organisation's control; it has never been about gatekeeping what
+an employee is permitted to read, and quietly repurposing the same mechanism for
+that different problem would be exactly the kind of unstated scope creep this
+project's documentation has consistently tried to avoid. A warning banner respects
+that the user already has the information and preserves their own judgment about
+what to do with it, while still surfacing the compliance-relevant signal (this
+reply may contain something sensitive) for them to act on and for the audit trail
+to record.
+
+**Data handled the same way as the prompt side**: the response's raw text is never
+stored — only a SHA-256 hash (`audit_log.response_text_hash`, migration `0015`),
+mirroring `original_prompt_hash`. `response_entities_detected`, `response_risk_
+score`, `response_flagged`, and `response_scanned_at` are all `NULL` until a
+response scan is actually recorded for that row — never a fabricated "clean"
+default.
+
+**Honest confidence assessment**: gemini.google.com's response scanning has been
+verified end-to-end against a real, live, anonymous production session — the
+composer and response-turn selectors, the correlation between a prompt scan and
+its response, and the full round trip through a mocked backend (no live Postgres
+was reachable in this sandbox to run the real one — see Questions.md) were all
+directly observed working, including the correct silent behavior for a clean
+response and the correct warning banner for a flagged one. chatgpt.com's and
+claude.ai's response-turn selectors remain unverified best-effort guesses (both
+sites are unreachable from this project's development environment for a full,
+authenticated session) — see `content/chatgpt-adapter.js` and
+`content/claude-adapter.js`'s own header comments, and
+[extension/README.md](../extension/README.md), for exactly what that does and
+doesn't mean.
 
 ## API and Integration Checklist
 
@@ -132,4 +213,13 @@ the target, that gap is stated directly rather than glossed over.
     `redacted_and_forwarded` / `redacted_low_confidence_review` /
     `blocked_low_confidence`), a human-readable reason string, the AI model used (a
     literal "not connected" string in v0.1), and the response-scan result. Raw prompt
-    text is never stored, only a SHA-256 hash.
+    text is never stored, only a SHA-256 hash. **The response-scan result is now real,
+    not a placeholder, on rows whose prompt was actually sent**: `POST /api/scan/
+    response` (see the dedicated Response scanning section below) updates the same
+    row with the AI reply's scan outcome once the browser extension has captured and
+    scanned it — a hash of the response text (same "never store raw content"
+    principle, applied symmetrically), whether anything was flagged, and which entity
+    types. A row whose prompt was blocked pre-gateway, or whose response was never
+    submitted for scanning (e.g. an older row from before this feature existed, or a
+    site response scanning doesn't cover), simply has these columns `NULL` — not a
+    fabricated "clean" result.

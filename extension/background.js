@@ -99,6 +99,46 @@ async function scanPrompt(prompt) {
   return { ok: true, data };
 }
 
+// Response scanning ("response scanning + observability + hardening" task,
+// Part 1) — mirrors scanPrompt() above almost exactly, but fails OPEN on a
+// network/API error rather than closed (see content/response-scanner.js's
+// own comment on why: the response has already rendered, there's nothing
+// left to block, a failed check just means no warning banner shows).
+async function scanResponse(auditLogId, responseText) {
+  const { jwt, apiBaseUrl } = await getSettings();
+  if (!jwt) {
+    return { ok: false, error: "not_authenticated", message: "Not logged in." };
+  }
+
+  let res;
+  try {
+    res = await fetch(`${apiBaseUrl}/api/scan/response`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({ audit_log_id: auditLogId, response_text: responseText }),
+    });
+  } catch (err) {
+    return { ok: false, error: "network_error", message: String(err?.message ?? err) };
+  }
+
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      message = body?.error?.message ?? message;
+    } catch {
+      // non-JSON error body — keep the HTTP-status message
+    }
+    return { ok: false, error: "api_error", message };
+  }
+
+  const data = await res.json();
+  return { ok: true, data };
+}
+
 async function login(email, password, apiBaseUrl) {
   let res;
   try {
@@ -182,6 +222,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "LANGO_SCAN_PROMPT") {
     scanPrompt(message.prompt).then(sendResponse);
     return true; // keep the message channel open for the async response
+  }
+  if (message?.type === "LANGO_SCAN_RESPONSE") {
+    scanResponse(message.auditLogId, message.responseText).then(sendResponse);
+    return true;
   }
   if (message?.type === "LANGO_LOGIN") {
     login(message.email, message.password, message.apiBaseUrl).then(sendResponse);

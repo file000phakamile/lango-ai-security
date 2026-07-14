@@ -1,5 +1,7 @@
 use axum::{extract::State, Json};
 use regex::Regex;
+use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::{
     auth::AuthUser,
@@ -11,6 +13,82 @@ use crate::{
     models::{ScanRequest, ScanResponse},
     state::AppState,
 };
+
+/// Consent gate (Part 4 of the multi-tenancy task): "before any scanning is
+/// permitted" is a hard requirement, enforced here server-side — checked
+/// fresh against the database on every call, NOT read from the JWT, since a
+/// token issued at login time can't reflect a consent acceptance (or an
+/// organisation's policy-version bump) that happened after that token was
+/// minted. `pub(crate)` so `routes::response_scan` can apply the exact same
+/// gate to a response scan, rather than re-implementing (and risking
+/// drifting from) this query.
+pub(crate) async fn check_consent(pool: &PgPool, user_id: Uuid) -> AppResult<()> {
+    let (user_consent_version, org_consent_version): (Option<String>, String) = sqlx::query_as(
+        r#"
+        SELECT u.consent_policy_version, o.consent_policy_version
+        FROM users u
+        JOIN organisations o ON o.id = u.organisation_id
+        WHERE u.id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    if user_consent_version.as_deref() != Some(org_consent_version.as_str()) {
+        return Err(AppError::ConsentRequired(
+            "Data-use consent is required before scanning. Please open the Lango extension \
+             popup and accept the consent screen."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Loads this organisation's configured confidence threshold (falling back
+/// to the system default if they've never customized it — policy builder,
+/// product-depth task Part 1) and active custom patterns, fresh on every
+/// call — same "read live from the DB, never from the JWT" reasoning as
+/// `check_consent` above, since an org's policy can change between token
+/// issuance and this request. A custom pattern whose stored regex somehow
+/// fails to recompile (it was validated at creation time in
+/// routes/policy.rs, so this should never happen) is skipped rather than
+/// failing the whole scan. `pub(crate)` so `routes::response_scan` builds
+/// its `ScanConfig` identically to the prompt path — a response scan must
+/// use the SAME org policy (threshold, custom patterns) a prompt scan
+/// would, not a second, potentially-drifted copy of it.
+pub(crate) async fn load_scan_config(pool: &PgPool, organisation_id: Uuid) -> AppResult<ScanConfig> {
+    let org_confidence_threshold: f32 = sqlx::query_scalar(
+        "SELECT confidence_threshold FROM organisation_detection_settings WHERE organisation_id = $1",
+    )
+    .bind(organisation_id)
+    .fetch_optional(pool)
+    .await?
+    .unwrap_or(crate::detection::scan::CONFIDENCE_THRESHOLD);
+
+    let custom_pattern_rows: Vec<(String, String, f32)> = sqlx::query_as(
+        r#"
+        SELECT entity_label, pattern, confidence
+        FROM organisation_custom_patterns
+        WHERE organisation_id = $1 AND active = true
+        "#,
+    )
+    .bind(organisation_id)
+    .fetch_all(pool)
+    .await?;
+
+    let custom_patterns: Vec<CustomPattern> = custom_pattern_rows
+        .into_iter()
+        .filter_map(|(entity_label, pattern, confidence)| {
+            Regex::new(&pattern).ok().map(|regex| CustomPattern {
+                entity_label,
+                regex,
+                confidence,
+            })
+        })
+        .collect();
+
+    Ok(ScanConfig { confidence_threshold: org_confidence_threshold, custom_patterns })
+}
 
 pub async fn scan(
     State(state): State<AppState>,
@@ -26,79 +104,8 @@ pub async fn scan(
         ));
     }
 
-    // Consent gate (Part 4 of the multi-tenancy task): "before any scanning
-    // is permitted" is a hard requirement, enforced here server-side —
-    // checked fresh against the database on every call, NOT read from the
-    // JWT, since a token issued at login time can't reflect a consent
-    // acceptance (or an organisation's policy-version bump) that happened
-    // after that token was minted. The extension's popup is expected to
-    // gate its OWN UI on this too (see LoginResponse.requires_consent), but
-    // this check is what actually stops an unconsented scan from being
-    // processed regardless of what the client does or doesn't enforce.
-    let (user_consent_version, org_consent_version): (Option<String>, String) = sqlx::query_as(
-        r#"
-        SELECT u.consent_policy_version, o.consent_policy_version
-        FROM users u
-        JOIN organisations o ON o.id = u.organisation_id
-        WHERE u.id = $1
-        "#,
-    )
-    .bind(claims.sub)
-    .fetch_one(&state.db)
-    .await?;
-    if user_consent_version.as_deref() != Some(org_consent_version.as_str()) {
-        return Err(AppError::ConsentRequired(
-            "Data-use consent is required before scanning. Please open the Lango extension \
-             popup and accept the consent screen."
-                .to_string(),
-        ));
-    }
-
-    // Policy builder (product-depth task, Part 1): load this organisation's
-    // configured confidence threshold (falling back to the system default
-    // if they've never customized it) and active custom patterns, fresh on
-    // every scan — same "read live from the DB, never from the JWT"
-    // reasoning as the consent check above, since an org's policy can
-    // change between token issuance and this request. A custom pattern
-    // whose stored regex somehow fails to recompile (it was validated at
-    // creation time in routes/policy.rs, so this should never happen) is
-    // skipped rather than failing the whole scan — a missing custom
-    // detector is a lesser failure than blocking every request for the
-    // organisation.
-    let org_confidence_threshold: f32 = sqlx::query_scalar(
-        "SELECT confidence_threshold FROM organisation_detection_settings WHERE organisation_id = $1",
-    )
-    .bind(claims.organisation_id)
-    .fetch_optional(&state.db)
-    .await?
-    .unwrap_or(crate::detection::scan::CONFIDENCE_THRESHOLD);
-
-    let custom_pattern_rows: Vec<(String, String, f32)> = sqlx::query_as(
-        r#"
-        SELECT entity_label, pattern, confidence
-        FROM organisation_custom_patterns
-        WHERE organisation_id = $1 AND active = true
-        "#,
-    )
-    .bind(claims.organisation_id)
-    .fetch_all(&state.db)
-    .await?;
-
-    let custom_patterns: Vec<CustomPattern> = custom_pattern_rows
-        .into_iter()
-        .filter_map(|(entity_label, pattern, confidence)| {
-            Regex::new(&pattern).ok().map(|regex| CustomPattern {
-                entity_label,
-                regex,
-                confidence,
-            })
-        })
-        .collect();
-
-    let scan_config = ScanConfig {
-        confidence_threshold: org_confidence_threshold,
-        custom_patterns,
-    };
+    check_consent(&state.db, claims.sub).await?;
+    let scan_config = load_scan_config(&state.db, claims.organisation_id).await?;
 
     let outcome = scan_prompt_with_config(&payload.prompt, &scan_config);
     let original_prompt_hash = hash_prompt(&payload.prompt);
@@ -118,7 +125,10 @@ pub async fn scan(
     let entities_json = serde_json::to_value(&outcome.entities_detected)
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    sqlx::query(
+    // RETURNING id: response scanning (product-depth task Part 1) needs a
+    // way to correlate the AI's reply, once it stabilises, back to this
+    // exact audit_log row — see ScanResponse::id's own doc comment.
+    let audit_log_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO audit_log (
             session_id, user_id, department, language, "timestamp",
@@ -127,6 +137,7 @@ pub async fn scan(
             sensitivity_class, facility_type, organisation_id
         )
         VALUES ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        RETURNING id
         "#,
     )
     .bind(claims.session_id)
@@ -144,10 +155,11 @@ pub async fn scan(
     .bind(outcome.sensitivity_class)
     .bind(&payload.facility_type)
     .bind(claims.organisation_id)
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await?;
 
     Ok(Json(ScanResponse {
+        id: audit_log_id,
         entities_detected: outcome.entities_detected,
         risk_score: outcome.risk_score,
         redacted_prompt: outcome.redacted_prompt,

@@ -1187,3 +1187,249 @@ exactly) at desktop width, plus the Labelled Dataset export panel's download flo
 (real `page.waitForEvent("download")`, correct filename via the same CORS
 `expose_headers` fix from item 24), plus 375px zero-overflow confirmation of the
 new confirm/overturn UI in the Audit Log's card-list view.
+
+## 26. Response scanning (product-depth task Part 1) — real verification, and a
+methodology correction to a previous session's conclusion
+
+**A previous session's conclusion that "loading the unpacked extension itself
+failed in this sandbox" was wrong — not because the environment changed, but
+because the wrong Playwright API was used.** `extension/README.md`'s Verification
+section (before this task) stated that Playwright's Chromium doesn't support
+extensions, backed by "direct CDP `Target.getTargets` polling (empty every time)."
+That conclusion came from `chromium.launch()`, which indeed does not reliably
+support `--load-extension` for the kind of persistent, extension-aware context MV3
+needs. `chromium.launchPersistentContext(userDataDir, { args: ["--disable-
+extensions-except=...", "--load-extension=...", "--headless=new"] })` — a
+different Playwright entry point — does support it, and worked immediately: a
+real background service worker (`chrome-extension://.../background.js`) appeared
+in `context.serviceWorkers()`, and a real content script logged "[Lango] content
+script active on gemini.google.com" in the page console. This is corrected
+throughout `extension/README.md` below, not just noted here — the previous
+"Playwright can't load extensions in this environment" claim was itself
+incorrect and needed fixing, not just superseding.
+
+**gemini.google.com turned out to be reachable AND usable without a Google
+account at all** — the single most valuable, unexpected finding of this task.
+`https://gemini.google.com/` returns a real HTTP 200 (unlike chatgpt.com and
+claude.ai, both still blocked — see below) and serves a working, anonymous
+"Ask Gemini" composer that accepts real prompts and returns real model replies,
+with no login. This made genuine, live, production verification possible for
+this site in a way that was never available for any of the five sites before.
+Used for real, bounded, ordinary functional testing (a handful of short factual
+prompts — "What is the capital of France?" and similar) — not scraping, not
+load-testing, nothing adversarial to Google's infrastructure.
+
+**What was verified for real, directly against live production gemini.google.com
+(not simulated), in order:**
+
+1. **Composer selector**: `rich-textarea .ql-editor[contenteditable="true"]`
+   confirmed to match the real, live composer exactly, via direct DOM inspection
+   (`page.evaluate` reading the real element's `outerHTML`/`aria-label`/class
+   chain). The real `aria-label` text is "Enter a prompt for Gemini", not "Enter
+   a prompt here" as an earlier, unverified guess had it — corrected in
+   `content/gemini-adapter.js`. The Shadow DOM risk that file's header comment
+   used to warn about (a closed shadow root would have made `document.querySelector`
+   blind to the composer entirely) did **not** materialise — plain
+   `querySelector`/`querySelectorAll` see straight through.
+2. **Response element selector**: `message-content` (a custom element) confirmed,
+   via the same direct-inspection method with a marker phrase ("Say the exact
+   words: TESTPHRASE ALPHA BETA GAMMA"), to hold ONLY the clean response text —
+   no "Gemini said" label noise (present in `model-response`, an ancestor
+   element, but not in `message-content` itself). Confirmed correct chronological
+   ordering across a real two-turn conversation (`document.querySelectorAll
+   ("message-content")` returned `["FIRSTMARKER", "SECONDMARKER"]` in that exact
+   order after two real sequential sends) — the basis for
+   `findLatestResponseTurn()`'s "last element in the NodeList is the most recent
+   turn" assumption.
+3. **Real streaming-mutation timing data**, used to choose `DEBOUNCE_MS`, not
+   guessed: a `MutationObserver` on `document.body` (mirroring the planned
+   orchestrator design exactly) logged every mutation-batch timestamp during a
+   real 6-sentence streamed response. Streaming lasted ~7.8 seconds total, in
+   97 mutation-batch bursts, with individual gaps as large as **2906ms** between
+   bursts while the response was still actively arriving. A debounce shorter than
+   that — the 1500ms this file's design notes originally floated as "a
+   reasonable middle ground" before this test — would have fired prematurely on
+   this exact real response and scanned truncated text. `DEBOUNCE_MS = 4000` was
+   chosen from this measurement (comfortable margin above the observed maximum),
+   not arbitrarily, and this is stated in `content/response-scanner.js`'s own
+   doc comment along with the honest caveat that it has NOT been measured for
+   chatgpt.com or claude.ai specifically (both still unreachable — see below) and
+   the same constant is reused for all three sites without site-specific tuning
+   data to justify that beyond "it's the only real data available."
+4. **A full, real, end-to-end round trip with the actual unpacked extension
+   loaded**, using a tiny local HTTP mock (`mock_backend.mjs`, scratch-only, not
+   committed) standing in for the real Rust backend ONLY because no live
+   Postgres was reachable in this sandbox to run it for real (the same
+   constraint documented in items 23-25) — the mock's response *shapes* exactly
+   mirror `models::ScanResponse`/`ScanResponseCheckResponse`, so this tests the
+   extension's own logic genuinely, just not the real detection engine (which
+   has its own separate, real backend test coverage). Sequence, all observed
+   directly, not asserted from code reading:
+   - A fake JWT was injected directly into the extension's own
+     `chrome.storage.local` via `serviceWorker.evaluate()` (bypassing the login
+     UI, which isn't what this test targets) — `apiBaseUrl` pointed at the mock.
+   - Typed a real prompt into the real, live Gemini composer and pressed Enter.
+     Lango's real capture-phase interception fired, called the mock `/api/scan`,
+     got back `cleared_no_entities`, and showed the correct banner.
+   - The extension's own `resend()` logic then genuinely re-triggered the send —
+     confirmed by a REAL query bubble appearing in Gemini's own UI with the
+     exact real text, meaning the interception's `preventDefault`/
+     `stopPropagation`/`stopImmediatePropagation` had truly stopped Gemini's own
+     handler on the first pass (proven by the bubble not appearing until the
+     deliberate resend), and Gemini's own handler still worked normally when
+     genuinely re-invoked.
+   - Real Gemini produced a real reply ("The capital of France is Paris.").
+     `response-scanner.js`'s `MutationObserver` + `findLatestResponseTurn` +
+     4-second debounce correctly detected it stabilise and called the mock
+     `/api/scan/response` with the CORRECT `audit_log_id` (the same id the mock
+     `/api/scan` had returned moments earlier — real correlation, not assumed)
+     and the exact clean response text, confirmed by the mock server's own
+     request log.
+   - Mock configured to return `flagged: true` → the real warning banner
+     appeared verbatim, screenshotted (`extension-full-roundtrip.png`, scratch
+     artifact). Mock reconfigured to return `flagged: false` → re-ran the exact
+     same sequence → **no banner at all**, confirming the deliberate silence on
+     a clean response (a banner on every single clean response would train
+     users to ignore Lango's banners entirely — see `response-scanner.js`'s own
+     comment).
+
+**What was NOT verified, stated plainly:** a real, logged-in Google account
+session (only the anonymous path was tested — a logged-in session's DOM, with
+account-specific chrome like avatar menus or a conversation sidebar, could
+genuinely differ from what an anonymous session shows); `findSendButton` (Enter-
+key submission was used throughout, never a button click); `writeText`'s
+contenteditable-write path (redaction was never exercised in this test, since
+the mock always returned `cleared_no_entities` — a genuinely different code path
+this session's testing didn't reach); and the real backend's actual detection
+engine in this exact browser-integration context (covered separately, and more
+rigorously, by the Rust unit/integration tests in items further down this file
+and `backend/tests/response_scan.rs`, but not by this specific browser session).
+
+**chatgpt.com and claude.ai were re-checked, not assumed still-blocked from a
+stale prior finding**: both a fresh headless-browser navigation and a fresh raw
+HTTP fetch (the same "try curl, since server-rendered HTML sometimes differs
+from what a client-rendered block page shows" technique that worked for
+copilot.microsoft.com in an earlier pass) were attempted again specifically for
+this task. chatgpt.com: headless navigation still 403s, but a raw HTTP fetch
+succeeded (200, ~490KB of real app-shell HTML) and confirmed `#prompt-textarea`
+is still the real, current composer id — genuinely new information, though it
+could not confirm anything about response-turn markup, since that only exists
+once a real, authenticated conversation has messages in it, and the fetched page
+is the logged-out landing shell. claude.ai: both methods remain fully blocked —
+a raw fetch now redirects to `/login` and returns HTTP 403 even there, not just
+a silent block. Both adapters' header comments were updated with these specific,
+current findings rather than left with stale claims from before this task.
+
+**Design decision: response scanning is binary (flagged/not-flagged), not the
+prompt side's three-tier confidence/redact/block model — deliberately, stated
+in `scan_response`'s own doc comment.** The three-tier model exists to decide
+whether the user's OWN outgoing text should be forwarded, redacted, or blocked
+— a decision that only makes sense before that text has gone anywhere. By the
+time a response is scanned, it has already rendered in the user's browser; there
+is no "forward or block" step left to apply to it. The only real decision left
+is whether to warn the user, which is inherently binary. `scan_response` reuses
+`detect_all` — the exact same detector pipeline `scan_prompt_with_config` uses —
+via a small refactor (`detect_all`/`build_prompt_outcome` split out of what used
+to be one function, `scan_prompt_with_config`), so response scanning benefits
+from every existing and future detector with zero duplicated matching logic; it
+just skips the prompt-specific gating/redaction step afterward. Confirmed by a
+dedicated regression test
+(`response_flagging_respects_the_organisations_confidence_threshold`) that the
+org's configurable confidence threshold, product-depth task Part 1's policy
+builder, has NO effect on response flagging, which is the correct, deliberate
+behavior, not an oversight.
+
+**Design decision: a flagged response is never modified, redacted, or hidden —
+only flagged with a warning banner. Stated in code (multiple places:
+`scan_response`'s doc comment, `content/response-scanner.js`'s doc comment) and
+in `docs/ARCHITECTURE.md`, per the task's explicit instruction.** The reasoning,
+in full: redacting an outgoing prompt prevents a leak that hasn't happened yet —
+the sensitive data never leaves the browser. Silently rewriting or hiding a
+response the user has ALREADY been shown is a different kind of act entirely: it
+means the tool deciding, after the fact and without asking, what the user is and
+isn't allowed to have read — the user already saw the real content render before
+any scan could possibly have run (response scanning cannot happen faster than
+the response itself arrives). This project's fail-closed principle throughout is
+about preventing sensitive data from leaving the organisation; it was never about
+gatekeeping what a user is allowed to read, and applying the same mechanism to a
+fundamentally different problem would be a scope creep this codebase's existing
+honesty standard doesn't support without saying so explicitly. A warning banner
+respects the user's actual agency over content they've already seen, while still
+surfacing the real signal (this response may contain something sensitive) for
+them to act on.
+
+**Design decision: response-scan failures fail OPEN, not closed — the opposite
+of the prompt side, and deliberately so, not an inconsistency.** A failed prompt
+scan must block the send (fail-closed) because the alternative is an unscanned
+prompt silently leaving the organisation. A failed response scan has nothing
+left to block — the response already rendered before the scan could even start
+— so failing "closed" would accomplish nothing except silently withholding a
+warning banner, no different in outcome from failing "open." `content/
+response-scanner.js`'s `onStable` catches a `sendMessage` failure and logs a
+console warning rather than showing any banner or error — a degraded-but-safe
+outcome, explicitly documented as such.
+
+**Design decision: a single mutable slot (`lastScanId`) correlates a response
+back to its prompt, not a queue or a per-turn map — a real, named limitation,
+not hidden.** The common case — send one prompt, wait for the reply, then send
+the next — works correctly. A user sending a second prompt before the first
+response has stabilised and been scanned can cause the response scan to
+attribute to the wrong audit_log row (or simply never fire, if the id has
+already been overwritten by the second prompt's scan). Building a real queue or
+per-DOM-element correlation map was judged disproportionate engineering for a v1
+feature whose primary value is catching the COMMON case of a leaked secret in a
+reply, not covering every possible rapid-fire multi-turn interleaving — stated
+explicitly in `response-scanner.js`'s own doc comment as an accepted limitation,
+not a silent gap.
+
+**Backend: `RETURNING id` added to the `/api/scan` INSERT, and `ScanResponse`
+gained an `id` field** — needed so the extension can correlate a response back
+to the audit_log row its originating prompt scan created. `check_consent` and
+`load_scan_config` (previously inlined in `routes/scan.rs`) were extracted to
+`pub(crate)` functions specifically so `routes/response_scan.rs` applies the
+EXACT same consent gate and org policy config a prompt scan would, rather than
+a second, potentially-drifting copy of that logic — a response scan uses the
+same organisation's confidence threshold and custom patterns a prompt scan from
+the same org would (though, per the binary-outcome decision above, the
+threshold value itself doesn't change whether a response gets flagged — only
+custom patterns matter for response scanning's detection step).
+
+**Backend: one response scan per audit_log row, enforced by an application-level
+check** (`response_scanned_at IS NULL`), not a DB `UNIQUE` constraint this time
+— unlike `review_decisions` (item 25), the audit_log table's response columns
+are updated in place on the SAME row rather than inserted as a new row, so
+there's no separate table to put a `UNIQUE` constraint on; the check is a
+`SELECT ... response_scanned_at` read immediately before the `UPDATE`, inside
+the same request — a real, if slightly weaker (a genuine race between two
+concurrent calls for the same row is theoretically possible, unlike a DB
+constraint), safeguard than doing nothing. Judged acceptable for v1 given a
+single browser tab only ever attempts one response scan per turn by
+construction (the debounce fires once, `scannedElements` a `WeakSet` prevents
+the extension itself from ever trying twice for the same DOM element) — the
+race would require two genuinely concurrent requests for the same row, which
+the extension's own design doesn't produce.
+
+**Ownership check on `/api/scan/response`**: the target audit_log row must
+belong to the calling user (`user_id = claims.sub`) AND their organisation,
+checked via a real `WHERE` clause, not a role check — the same "a row from
+another user/org looks identical to nonexistent, not a 403 that would confirm
+it exists" pattern used throughout this codebase's multi-tenant queries. A user
+cannot attach fabricated response text to another user's audit trail, which
+would otherwise let them pollute or fabricate someone else's compliance record.
+
+**Verification**: `backend/tests/response_scan.rs` — five real `#[sqlx::test]`
+integration tests (a clean round trip leaves the response not flagged; a leaked
+national ID is flagged AND the audit_log row is actually updated with the
+result, not just the HTTP response; a second scan attempt on the same row is
+rejected; a response scan for a blocked-prompt row is rejected since nothing was
+ever sent; a user cannot attach a response scan to another user's row) calling
+the real route handlers directly. Compiles cleanly but was not run against a
+live Postgres here, same sandbox limitation as items 23-25. `detection::scan`'s
+5 new `scan_response` unit tests DID run and pass, alongside all 108 previously-
+passing unit tests (113 total, zero regressions) — confirmed by `cargo test
+--lib` after the `detect_all`/`build_prompt_outcome` refactor. Frontend/
+extension: no `tsc`/`eslint` applicable (extension is plain JS, not part of the
+Next.js build), but `manifest.json` was validated as syntactically correct JSON,
+and — far more substantively — the real end-to-end browser verification
+described above, which is qualitatively stronger evidence than either of those
+checks would have provided anyway.

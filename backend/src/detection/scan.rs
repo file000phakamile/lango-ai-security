@@ -246,6 +246,27 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
 /// `config`, exactly as the task requires ("that rule is not configurable,
 /// it stays absolute").
 pub fn scan_prompt_with_config(prompt: &str, config: &ScanConfig) -> ScanOutcome {
+    let matches: Vec<Match> = detect_all(prompt, config);
+    build_prompt_outcome(prompt, matches, config.confidence_threshold)
+}
+
+/// Runs every detector (built-in regex rules, health-specific detectors,
+/// the name heuristic, the generic structured-identifier fallback, and any
+/// organisation custom patterns) and resolves overlaps — the detection step
+/// shared by BOTH the prompt-scanning path (`scan_prompt_with_config`,
+/// above) and the response-scanning path (`scan_response`, below). Response
+/// scanning (product-depth task, "response scanning + observability +
+/// hardening") intentionally reuses this exact detection pipeline rather
+/// than a separate, parallel one: a leaked national ID or API key is
+/// exactly as real a finding in an AI's reply as in a user's prompt, and
+/// duplicating the detector list would risk the two silently drifting
+/// apart over time. What differs between the two callers is what happens
+/// AFTER detection — the prompt path applies the three-tier confidence
+/// gating and redaction/blocking decision below; the response path
+/// (`scan_response`) does not, since there is no "forward or block"
+/// decision to make about a reply the user has already seen render — see
+/// that function's own doc comment.
+fn detect_all(prompt: &str, config: &ScanConfig) -> Vec<Match> {
     // Every detector below pushes CANDIDATE matches into one flat list,
     // with no per-detector overlap skipping — overlap resolution happens
     // exactly once, after every detector has had a chance to see the whole
@@ -397,7 +418,16 @@ pub fn scan_prompt_with_config(prompt: &str, config: &ScanConfig) -> ScanOutcome
 
     let mut matches: Vec<Match> = resolve_overlaps(candidates);
     matches.sort_by_key(|m| m.start);
+    matches
+}
 
+/// The prompt-specific decisioning step: three-tier confidence gating,
+/// redaction, and the fail-closed blocking logic — everything that happens
+/// once `detect_all` has already produced the match list. Split out from
+/// `scan_prompt_with_config` only so `detect_all` can be shared with
+/// `scan_response` below; the logic itself is completely unchanged from
+/// before this split.
+fn build_prompt_outcome(prompt: &str, matches: Vec<Match>, confidence_threshold: f32) -> ScanOutcome {
     if matches.is_empty() {
         return ScanOutcome {
             entities_detected: vec![],
@@ -453,10 +483,10 @@ pub fn scan_prompt_with_config(prompt: &str, config: &ScanConfig) -> ScanOutcome
     // Tier 3a: any structured entity below the org's configured
     // confidence_threshold blocks, unconditionally — no middle band for
     // these types (see NAME_LOW_CONFIDENCE_FLOOR's doc comment for why).
-    if min_structured_confidence < config.confidence_threshold {
+    if min_structured_confidence < confidence_threshold {
         let low_confidence_matches: Vec<&Match> = matches
             .iter()
-            .filter(|m| !is_leniency_eligible(&m.entity_type, m.sensitivity) && m.confidence < config.confidence_threshold)
+            .filter(|m| !is_leniency_eligible(&m.entity_type, m.sensitivity) && m.confidence < confidence_threshold)
             .collect();
         let low_confidence_types: Vec<String> = low_confidence_matches
             .iter()
@@ -469,7 +499,7 @@ pub fn scan_prompt_with_config(prompt: &str, config: &ScanConfig) -> ScanOutcome
             risk_score,
             prompt,
             min_structured_confidence,
-            config.confidence_threshold,
+            confidence_threshold,
             &low_confidence_types,
             &low_confidence_entity_types,
             sensitivity_class,
@@ -501,7 +531,7 @@ pub fn scan_prompt_with_config(prompt: &str, config: &ScanConfig) -> ScanOutcome
     // structured is below threshold (tier 3a already returned above if it
     // were). Redact and forward anyway rather than blocking, flagged
     // distinctly for async compliance review — see NAME_LOW_CONFIDENCE_FLOOR.
-    if min_name_confidence < config.confidence_threshold {
+    if min_name_confidence < confidence_threshold {
         return ScanOutcome {
             entities_detected,
             risk_score,
@@ -546,6 +576,93 @@ pub fn scan_prompt_with_config(prompt: &str, config: &ScanConfig) -> ScanOutcome
             if plain_language::unique_phrase_count(&matched_entity_types) == 1 { "was" } else { "were" },
         ),
         sensitivity_class,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Response scanning ("response scanning + observability + hardening" task,
+// Part 1) — the second half of the pipeline. Scans an AI provider's reply
+// (captured client-side by the browser extension after it finishes
+// rendering — see extension/content/response-scanner.js) for the same
+// sensitive entities/leaked-secret patterns the prompt side detects.
+//
+// DELIBERATELY NOT the same three-tier confidence/redact/block model
+// `build_prompt_outcome` implements. That model exists to decide "should
+// THIS user's own outgoing text be forwarded, redacted, or blocked before
+// it leaves the browser" — a decision that only makes sense before the
+// text has gone anywhere. A response has already rendered in the user's
+// browser by the time this function ever sees it; there is no "forward or
+// block" step left to gate. The only real decision left is binary: does
+// this response contain anything worth warning the user about, yes or no.
+// See `scan_response`'s own doc comment for the fuller design reasoning,
+// and docs/ARCHITECTURE.md for why silently modifying the AI's actual
+// response was ruled out entirely, not just for this simpler-outcome
+// reason.
+pub struct ResponseScanOutcome {
+    pub entities_detected: Vec<String>,
+    pub risk_score: f32,
+    pub sensitivity_class: &'static str,
+    pub flagged: bool,
+    /// Plain-language banner text — same honesty/no-jargon standard as
+    /// `ScanOutcome::user_message` (see `plain_language.rs`), reused
+    /// directly for the entity-naming part of this sentence so the two
+    /// surfaces can't drift on how they describe the same entity types.
+    pub user_message: String,
+}
+
+/// Scans response text (an AI provider's rendered reply, captured
+/// client-side) for the same entities the prompt-side detectors already
+/// catch — national IDs, bank accounts, API keys/secrets, health data, etc.
+/// — via the exact same `detect_all` pipeline `scan_prompt_with_config`
+/// uses, so response scanning benefits from every existing detector (and
+/// every future one) with zero duplicated matching logic.
+///
+/// **Design decision, stated here and in docs/ARCHITECTURE.md**: this
+/// function never modifies or redacts the scanned text, and there is no
+/// "redacted_response" concept anywhere in this codebase. A flagged
+/// response is surfaced to the user as a warning banner (see
+/// `user_message` below and `extension/content/response-scanner.js`) —
+/// the AI's actual reply, exactly as it rendered, is left alone.
+/// Covertly rewriting or hiding content the user did not write themselves,
+/// the moment after they've already been shown it, is a materially
+/// different and more concerning kind of intervention than redacting a
+/// prompt before it's ever sent — it would mean the tool silently deciding
+/// what a person is and isn't allowed to read, rather than protecting what
+/// they send. Redacting an outgoing prompt prevents a leak that hasn't
+/// happened yet; silently altering a received response accepts that the
+/// content already reached the user and then also lies to them about what
+/// they were told. This codebase's fail-closed principle is about
+/// preventing sensitive data from leaving the organisation, not about
+/// filtering what a user is allowed to read — the two are not the same
+/// problem and do not warrant the same mechanism.
+pub fn scan_response(text: &str, config: &ScanConfig) -> ResponseScanOutcome {
+    let matches: Vec<Match> = detect_all(text, config);
+
+    if matches.is_empty() {
+        return ResponseScanOutcome {
+            entities_detected: vec![],
+            risk_score: 0.0,
+            sensitivity_class: SensitivityClass::Standard.as_str(),
+            flagged: false,
+            user_message: "No sensitive information was found in this response.".to_string(),
+        };
+    }
+
+    let risk_score: f32 = matches.iter().map(|m| severity(&m.entity_type)).sum::<f32>().min(1.0);
+    let entities_detected: Vec<String> = matches.iter().map(|m| m.entity_type.to_string()).collect();
+    let sensitivities: Vec<SensitivityClass> = matches.iter().map(|m| m.sensitivity).collect();
+    let sensitivity_class = row_sensitivity_class(&sensitivities);
+    let entity_type_refs: Vec<&str> = matches.iter().map(|m| m.entity_type.as_str()).collect();
+
+    ResponseScanOutcome {
+        entities_detected,
+        risk_score,
+        sensitivity_class,
+        flagged: true,
+        user_message: format!(
+            "This response may contain {}. Review it carefully before using or sharing it.",
+            plain_language::describe(&entity_type_refs),
+        ),
     }
 }
 
@@ -657,6 +774,82 @@ fn resolve_overlaps(mut candidates: Vec<Match>) -> Vec<Match> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- Response scanning ("response scanning + observability +
+    // hardening" task, Part 1) ---------------------------------------------
+
+    #[test]
+    fn clean_response_is_not_flagged() {
+        let outcome = scan_response("The capital of France is Paris.", &ScanConfig::default());
+        assert!(!outcome.flagged);
+        assert!(outcome.entities_detected.is_empty());
+        assert_eq!(outcome.risk_score, 0.0);
+    }
+
+    #[test]
+    fn response_containing_a_national_id_is_flagged() {
+        // Same detector, same pattern as the prompt-side test
+        // (national_id_is_redacted below) — proves response scanning
+        // reuses the identical detection pipeline, not a separate one.
+        let outcome = scan_response(
+            "Sure — the customer's national ID on file is 63-123456A23.",
+            &ScanConfig::default(),
+        );
+        assert!(outcome.flagged);
+        assert!(outcome.entities_detected.contains(&"national_id".to_string()));
+        assert!(outcome.user_message.to_lowercase().contains("national id"));
+        // Plain language only — no raw entity_type string in the banner text.
+        assert!(!outcome.user_message.contains("national_id"));
+    }
+
+    #[test]
+    fn response_scan_never_modifies_the_text_it_scans() {
+        // There is no redacted-response concept anywhere in this codebase —
+        // scan_response takes text by shared reference and returns no
+        // transformed copy of it at all (ResponseScanOutcome has no
+        // "redacted_response" field), so this is really a compile-time
+        // guarantee. This test exists as the explicit, named regression
+        // lock for that design decision (see scan_response's own doc
+        // comment and docs/ARCHITECTURE.md).
+        let original = "Sure — the customer's national ID on file is 63-123456A23.";
+        let _ = scan_response(original, &ScanConfig::default());
+        // If this compiled and `original` is still usable here unchanged,
+        // scan_response did not consume or mutate it.
+        assert_eq!(original, "Sure — the customer's national ID on file is 63-123456A23.");
+    }
+
+    #[test]
+    fn response_flagging_respects_the_organisations_confidence_threshold() {
+        // bank_account's primary pattern is 0.50 confidence — below the
+        // system default (0.60). scan_response has no confidence-threshold
+        // gating of its own (unlike the prompt path); a match is flagged
+        // purely on being detected at all, regardless of confidence — so
+        // this is actually a test that the ORG'S threshold setting has NO
+        // effect on response flagging, a deliberate simplification stated
+        // in scan_response's own doc comment ("no forward-or-block decision
+        // to gate").
+        let lowered_config = ScanConfig { confidence_threshold: MIN_ORG_CONFIDENCE_THRESHOLD, custom_patterns: vec![] };
+        let default_outcome = scan_response("Refund account 9988776655443 please.", &ScanConfig::default());
+        let lowered_outcome = scan_response("Refund account 9988776655443 please.", &lowered_config);
+        assert!(default_outcome.flagged);
+        assert!(lowered_outcome.flagged);
+        assert_eq!(default_outcome.entities_detected, lowered_outcome.entities_detected);
+    }
+
+    #[test]
+    fn response_scan_reuses_custom_patterns_from_the_policy_builder() {
+        let config = ScanConfig {
+            confidence_threshold: CONFIDENCE_THRESHOLD,
+            custom_patterns: vec![CustomPattern {
+                entity_label: "acme_account_format".to_string(),
+                regex: regex::Regex::new(r"ACME-\d{8}").unwrap(),
+                confidence: 0.90,
+            }],
+        };
+        let outcome = scan_response("Your reference is ACME-12345678.", &config);
+        assert!(outcome.flagged);
+        assert!(outcome.entities_detected.contains(&"acme_account_format".to_string()));
+    }
 
     #[test]
     fn clean_prompt_is_cleared() {

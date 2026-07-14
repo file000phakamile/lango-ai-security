@@ -13,6 +13,24 @@
 // contenteditable rich-text editor, structurally similar to chatgpt.com's —
 // see writeText's comment for why that similarity matters and where it
 // might not hold.
+//
+// Re-checked during the response-scanning task ("response scanning +
+// observability + hardening"): both a headless-browser navigation and a
+// raw, unauthenticated HTTP fetch of claude.ai were attempted again, and
+// both are still fully blocked (claude.ai redirects to /login and returns
+// HTTP 403 even to a plain curl-style request, unlike copilot.microsoft.com
+// or chatgpt.com, where the raw-HTTP path got through even though the
+// browser path didn't — see Questions.md for the exact results). There is
+// still no way to verify anything in this file against real markup.
+//
+// RESPONSE SCANNING SPECIFICALLY (Part 1 of that task) IS LOWER CONFIDENCE
+// THAN THE COMPOSER SELECTORS ABOVE, stated plainly: unlike chatgpt.com's
+// `data-message-author-role` attribute (a widely and consistently
+// documented convention across several years of public tooling),
+// claude.ai's response-turn markup has no comparably well-established
+// public convention this could be based on — `findLatestResponseTurn`
+// below is a lower-confidence guess than everything else in this file, not
+// just "the same unverified status as the rest."
 
 const ClaudeAdapter = {
   siteName: "claude.ai",
@@ -44,6 +62,26 @@ const ClaudeAdapter = {
     return form ? form.querySelector('button[type="submit"]') : null;
   },
 
+  // Response scanning (product-depth task, Part 1) — see file header:
+  // lower confidence than every other selector in this file. `[data-
+  // testid="conversation-turn"]` has been referenced in public discussion
+  // of claude.ai's DOM as marking each turn (both user and assistant);
+  // `.font-claude-message` has similarly been referenced as specific to
+  // assistant turns specifically. Tried in that order — the more specific,
+  // assistant-only class first — with the turn-level selector as a
+  // fallback that (if it matches BOTH user and assistant turns, which is
+  // genuinely unclear without live verification) could return a user turn
+  // as "the latest response," which would silently scan the wrong text.
+  // This is the single most likely part of this adapter to be simply wrong.
+  findLatestResponseTurn() {
+    const selectors = [".font-claude-message", '[data-testid="conversation-turn"]'];
+    for (const sel of selectors) {
+      const turns = document.querySelectorAll(sel);
+      if (turns.length) return turns[turns.length - 1];
+    }
+    return null;
+  },
+
   readText(composer) {
     return composer.innerText != null ? composer.innerText : composer.textContent || "";
   },
@@ -68,3 +106,4 @@ const ClaudeAdapter = {
 };
 
 LangoSiteAdapter.init(ClaudeAdapter);
+LangoResponseScanner.init(ClaudeAdapter);
