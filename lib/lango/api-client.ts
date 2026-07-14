@@ -351,3 +351,42 @@ export async function deleteCustomPattern(id: string): Promise<PolicySettings> {
     await authedRequest<PolicySettingsResponse>(`/api/policy/custom-patterns/${id}`, "DELETE"),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Compliance export (product-depth task, Part 2) — a file download, not a
+// JSON call, so this doesn't go through `authedRequest` above: it fetches
+// the raw response, reads the filename the backend chose from
+// Content-Disposition (see main.rs's CORS `expose_headers`), and triggers a
+// browser download via a temporary anchor element, since a plain
+// `window.location` navigation can't attach the Authorization header this
+// endpoint requires.
+// ---------------------------------------------------------------------------
+
+export async function downloadComplianceExport(
+  start: string,
+  end: string,
+  format: "csv" | "pdf",
+): Promise<void> {
+  const token = await login();
+  const res = await fetch(
+    `${API_BASE}/api/compliance-export?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&format=${format}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(detail?.error?.message ?? `compliance export failed: HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : `lango-compliance-export.${format}`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

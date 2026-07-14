@@ -41,7 +41,7 @@ anything has silently degraded — in language she can act on and defend in an a
 
 ## Screens
 
-The demo has seven views, switched via the sidebar (no page navigation — a single
+The demo has eight views, switched via the sidebar (no page navigation — a single
 client-side dashboard component):
 
 1. **Command Center** — Live-feeling overview: KPI tiles (sessions scanned, blocked/
@@ -72,10 +72,16 @@ client-side dashboard component):
    actually controls live scans (see [Questions.md](../Questions.md) item 23). The
    near-zero name-confidence floor and the special-category-health hard rule are not
    shown here as settings because neither is configurable, by anyone.
+8. **Compliance Export** — `compliance_admin`-only. A date range picker plus two
+   buttons ("Download CSV" / "Download PDF") that produce a one-click export of the
+   audit log, fairness metrics, and drift history together, formatted plainly enough
+   to hand to an external auditor or regulator without further editing. Also
+   live-only, same reasoning as Policy Builder — see
+   [Questions.md](../Questions.md) item 24.
 
 ## Information architecture
 
-A fixed left sidebar (`LangoDashboard` component) lists all seven views with an icon
+A fixed left sidebar (`LangoDashboard` component) lists all eight views with an icon
 and label each; the active view is highlighted with a left border accent and a
 slightly different background. Below the nav, a static footer note reinforces the
 product's core promise ("No raw prompts stored"). The main content area has a header

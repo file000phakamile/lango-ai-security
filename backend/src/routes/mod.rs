@@ -1,6 +1,7 @@
 pub mod audit_log;
 pub mod auth;
 pub mod command_center;
+pub mod compliance_export;
 pub mod consent;
 pub mod drift;
 pub mod fairness;

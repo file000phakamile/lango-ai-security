@@ -45,7 +45,7 @@ Render) that's since been fixed. See also
 | **Integrations** | One: [`extension/`](../extension/), a Manifest V3 browser extension that integrates with five AI chat sites' web UIs client-side (intercepting the composer's submit action, not a server-side connector) — chatgpt.com, claude.ai, gemini.google.com, chat.deepseek.com, copilot.microsoft.com (Microsoft's consumer web chat, not GitHub Copilot). Of these, **only chatgpt.com's DOM-dependent parts are verified against a live session**; the other four are implemented but not yet verified against live pages (see `extension/README.md` and `extension/USER_GUIDE.md`). No server-side connector to any AI provider's API exists; the backend's own AI Gateway stage remains a no-op. | Server-side connector(s) to the institution's chosen AI provider(s), in addition to (or instead of) the client-side extension approach; an alert/notification channel for drift and fairness alerts (see `.env.example`, `ALERT_WEBHOOK_URL`); potentially SSO/identity-provider integration for institutional login. |
 | **Security** | JWT session tokens (real, `jsonwebtoken` crate) + Argon2 password hashing (real, `argon2` crate) + role-gated, organisation-scoped endpoints (`staff` / `department_reviewer` / `compliance_admin` — see [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md)). Real tenant isolation: every query filters by the caller's `organisation_id`, verified by dedicated cross-tenant isolation tests (`backend/tests/multi_tenant_isolation.rs`), not just a schema column that happens to exist. A data-use consent gate blocks `/api/scan` for any user who hasn't accepted their organisation's current consent policy (`backend/src/routes/consent.rs`). No prompt-injection detection, rate limiting, or DoS mitigation is implemented — the Drift & Security view's Security Events are seeded illustrative rows (`backend/src/bin/seed.rs`), not output from a live detector. | Same JWT/Argon2/tenant-isolation foundation, plus real prompt-injection detection, rate limiting, and DoS mitigation at the gateway. |
 | **Monitoring** | Real PSI / KL-divergence math (`backend/src/detection/drift.rs`, with unit tests) computed once at seed time over synthetic weekly entity-count distributions — no scheduled batch job exists yet, so this doesn't run continuously against live traffic. Real Disparate Impact Ratio / Statistical Parity Difference (`backend/src/routes/fairness.rs`) computed live, on every request, from actual `audit_log` rows grouped by department and language. | Same PSI/KL and DIR/SPD math, run by a real scheduled job against live traffic instead of seed-time synthetic data; security event logging from a live detector instead of seeded examples. |
-| **Outputs** | A real, queryable `audit_log` table — one row per `/api/scan` call, with entities detected, risk score, decision, reason string, model used, response-scan result, and a hash (never raw text) of the original prompt. `GET /api/audit-log` serves it paginated and filterable to the dashboard. | Same audit log, at production scale/retention, with structured export (CSV/JSON) for regulator or internal-audit review. |
+| **Outputs** | A real, queryable `audit_log` table — one row per `/api/scan` call, with entities detected, risk score, decision, reason string, model used, response-scan result, and a hash (never raw text) of the original prompt. `GET /api/audit-log` serves it paginated and filterable to the dashboard. **A structured, date-ranged compliance export now exists**: `GET /api/compliance-export` (`compliance_admin` only) produces a CSV (complete dataset) or PDF (readable summary, capped at 500 most recent audit rows) covering the audit log, fairness metrics, and drift history together for a selected date range — see the Policy Builder / Compliance Export dashboard view and [Questions.md](../Questions.md) item 24. | Same audit log and export mechanism, at production scale/retention. |
 
 ## API and Integration Checklist
 
@@ -85,10 +85,13 @@ the target, that gap is stated directly rather than glossed over.
    `security_events`, `drift_snapshots`), field names matched deliberately to
    `lib/lango/types.ts`'s `AuditLogEntry` etc. so the API contract lines up cleanly
    with what the frontend already expects.
-6. **Data import/export formats explained** — Not implemented. The audit log would
-   need a structured export (e.g. CSV/JSON) for regulator or internal-audit review,
-   since that's the product's core compliance deliverable — not built in v0.1;
-   `GET /api/audit-log` (paginated JSON) is the closest thing today.
+6. **Data import/export formats explained** — Real: `GET /api/compliance-export`
+   (`?start=YYYY-MM-DD&end=YYYY-MM-DD&format=csv|pdf`, `compliance_admin` only)
+   exports the audit log, fairness metrics, and drift history together for a
+   date range — CSV (complete dataset, correctly quoted/escaped via the `csv`
+   crate) or PDF (readable summary, built with `printpdf`, no external font
+   file needed). `GET /api/audit-log` (paginated JSON) remains the live
+   dashboard's own read path and is unaffected by this addition.
 7. **External services / costs / dependencies listed** — Deployed v0.1: Vercel
    (frontend hosting) and Render (backend web service + managed Postgres), both on
    free tiers — no cost today, but see docs/DEPLOYMENT_PLAN.md's free-tier honesty

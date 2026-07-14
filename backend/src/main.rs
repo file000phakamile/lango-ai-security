@@ -45,7 +45,14 @@ async fn main() {
     let cors = CorsLayer::new()
         .allow_origin(cors_origin)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
-        .allow_headers([axum::http::header::AUTHORIZATION, axum::http::header::CONTENT_TYPE]);
+        .allow_headers([axum::http::header::AUTHORIZATION, axum::http::header::CONTENT_TYPE])
+        // Compliance export (product-depth task, Part 2) responds with a
+        // file download and a Content-Disposition header carrying its
+        // filename — browsers hide response headers from JS by default
+        // unless the server explicitly opts them into CORS exposure, so
+        // without this the frontend's download helper could still get the
+        // file bytes but never the real filename.
+        .expose_headers([axum::http::header::CONTENT_DISPOSITION]);
 
     let app = Router::new()
         .route("/api/auth/login", post(routes::auth::login))
@@ -84,6 +91,12 @@ async fn main() {
         .route(
             "/api/policy/custom-patterns/:id",
             delete(routes::policy::delete_custom_pattern),
+        )
+        // Compliance export (product-depth task, Part 2) — compliance_admin
+        // only, enforced inside the handler.
+        .route(
+            "/api/compliance-export",
+            get(routes::compliance_export::export),
         )
         // No auth required — this is what render.yaml's healthCheckPath
         // (and any external uptime check) hits.

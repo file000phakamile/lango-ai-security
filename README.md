@@ -31,9 +31,10 @@ what an institution's compliance and security team would see once Lango is deplo
 
 **Live demo:** https://lango-app-dusky.vercel.app
 
-The seven views (sidebar navigation): Command Center, Audit Log, Fairness Audit,
-Drift & Security, Pilot & Sandbox, Health Data Guard, and Policy Builder. See
-[docs/UX_DESIGN.md](docs/UX_DESIGN.md) for what each one shows and why.
+The eight views (sidebar navigation): Command Center, Audit Log, Fairness Audit,
+Drift & Security, Pilot & Sandbox, Health Data Guard, Policy Builder, and
+Compliance Export. See [docs/UX_DESIGN.md](docs/UX_DESIGN.md) for what each one
+shows and why.
 
 A narrated walkthrough script for a screen recording of this demo is at
 [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md); slide-by-slide pitch content is at
@@ -173,6 +174,21 @@ per-organisation config at all — see [Questions.md](Questions.md) item 23 for 
 full design writeup, including how a custom pattern is structurally prevented from
 ever reaching special-category-health status.
 
+### Compliance export (v0.1)
+
+A `compliance_admin` can generate a one-click, date-ranged export from the
+**Compliance Export** dashboard view (`GET /api/compliance-export`,
+`backend/src/routes/compliance_export.rs` + `backend/src/reports.rs`), covering
+the audit log, fairness metrics, and drift history for their own organisation
+together in one file:
+
+- **CSV** — the complete, unabridged dataset for the selected range, correctly
+  quoted/escaped (the `csv` crate, not hand-rolled string concatenation).
+- **PDF** — a readable, printable summary of the same three sections, built
+  with `printpdf` using a built-in font (no font file to ship), capped at the
+  500 most recent audit log rows in range (the CSV has no such cap — see
+  [Questions.md](Questions.md) item 24 for why).
+
 ## Data
 
 All data shown in this demo is **synthetic** — no real user, employee, or
@@ -305,11 +321,13 @@ path, and the PSI/KL-divergence math.
 **Backend integration tests** (`cd backend && cargo test`, requires a real Postgres
 reachable via `DATABASE_URL` — see [Setup](#full-stack-real-backend--real-data)):
 `backend/tests/multi_tenant_isolation.rs`, `consent_flow.rs`,
-`organisation_signup.rs`, and `policy_builder.rs`, each using `#[sqlx::test]`
-against a freshly-migrated throwaway database and calling real route handlers
-directly (no HTTP server, no mocks) — cross-tenant isolation, the consent gate, org
-signup, and the policy builder's safe-bounds enforcement (including a direct test
-that an out-of-range threshold is rejected by the API itself, not just the UI).
+`organisation_signup.rs`, `policy_builder.rs`, and `compliance_export.rs`, each
+using `#[sqlx::test]` against a freshly-migrated throwaway database and calling
+real route handlers directly (no HTTP server, no mocks) — cross-tenant isolation,
+the consent gate, org signup, the policy builder's safe-bounds enforcement
+(including a direct test that an out-of-range threshold is rejected by the API
+itself, not just the UI), and the compliance export's date-range filtering, RBAC,
+and cross-tenant isolation of the exported data.
 
 No frontend automated test suite yet — an honest gap, not an oversight we're hiding.
 See [Known Limitations](#known-limitations) and

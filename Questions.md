@@ -974,3 +974,106 @@ sandbox: all 94 pre-existing unit tests (`cargo test --lib`, zero regressions) p
 6 new `scan_prompt_with_config`/`ScanConfig` unit tests (100 total), and full
 frontend `tsc --noEmit` + `eslint` + real-browser Playwright verification (both
 mock-mode and network-mocked "live" mode, desktop and 375px) of the UI.
+
+## 24. Compliance export (product-depth task, Part 2) — design and judgment calls
+
+**Built cleanly from scratch**, as the task allowed — `docs/ARCHITECTURE.md` and
+`docs/SECURITY_PRIVACY.md` both explicitly listed a structured CSV/JSON export as
+"not yet built" before this change; there was no existing report-generation code to
+reuse.
+
+**One endpoint, `format` query param, not two endpoints.** `GET /api/compliance-
+export?start=...&end=...&format=csv|pdf` rather than separate `/csv` and `/pdf`
+routes — the two formats share 100% of their data-fetching logic (same
+`build_export_data`), only the final rendering step differs, so one endpoint with a
+format switch avoided duplicating the fetch/validate/RBAC logic for no real benefit.
+
+**A single file with labeled sections, not three separate files or a zip.** The task
+said "covering the audit log, fairness metrics, and drift history... formatted
+plainly enough to hand to an external auditor... without further editing" — a zip
+of three files is an extra unzip step for the auditor; a single CSV with clearly
+labeled section headers (`AUDIT LOG` / `FAIRNESS METRICS` / `DRIFT HISTORY`, each
+with its own column-header row) opens directly in a spreadsheet tool and is
+genuinely usable, even though the columns are ragged across section boundaries (a
+common, accepted pattern for this kind of combined report). Same three sections in
+the PDF, as separate labeled headings on a continuous document rather than separate
+files.
+
+**Fairness metrics are date-range-scoped for the export, computed by a NEW query —
+not by adding a date-range parameter to the existing live `/api/fairness`
+endpoint.** The live Fairness Audit dashboard view is deliberately "all of this
+org's history so far" (see `routes/fairness.rs`, unchanged); conflating it with an
+optional date filter risked the live view silently picking up unintended
+narrowing if a future call site forgot to omit the parameter. `compute_dir_spd`
+(already `pub(crate)`, shared with `routes::health`) is reused for the actual DIR/
+SPD math so the calculation itself can't drift between the live view and the export,
+even though the underlying rows are queried separately.
+
+**PDF: `printpdf` crate, version pinned to `0.7`, not the latest `0.10.x`.** Checked
+docs.rs directly before writing any code (this session's `AGENTS.md` "don't trust
+training-data API assumptions" lesson generalized beyond just Next.js) — 0.10.x
+replaced the built-in-font, layer-based API with an `Op`-list model that requires
+bundling an external `.ttf` font file just to render text, which this codebase has
+consistently avoided for exactly this kind of dependency-weight reason (see the
+name-heuristic module's doc comment on why a native-lib-dependent NER crate was
+skipped). `0.7.0`'s `PdfDocument::new`/`add_page`/`get_layer`/`add_builtin_font`/
+`use_text` API (confirmed against the actual versioned docs.rs pages, not memory)
+supports the 14 standard PDF fonts (Courier/Courier-Bold used here) with zero font
+files to ship. Verified this was the right call by actually generating a PDF and
+parsing it back with an independent tool (`pdf-parse`, a pdf.js-based Node library)
+rather than trusting `%PDF-` magic bytes alone — confirmed real, correctly paginated
+text content (2 pages for a 12-row sample, section headers, correct DIR/SPD values,
+audit rows with expected truncation), not just "compiles and produces some bytes."
+
+**PDF audit log capped at 500 most recent rows; CSV has no cap.** A busy
+organisation's full-quarter export could have thousands of rows — generating and
+rendering a PDF with that many rows is both slow and produces a document nobody
+would actually read end-to-end. The CSV (the "complete data" format, meant for a
+spreadsheet or the auditor's own tooling) has no cap at all. The cap and the reason
+for it are stated in the PDF's own header text, not a silent truncation — see
+`MAX_PDF_AUDIT_ROWS` in `backend/src/reports.rs`.
+
+**`reason_string` truncated per-line in the PDF (88 chars), not wrapped.** Line-
+wrapping arbitrary text within a fixed-width PDF layout built from raw x/y
+`use_text` calls (no built-in flow-text/paragraph primitive in this API) is real,
+non-trivial engineering for marginal benefit here — the CSV always has the complete,
+untruncated `reason_string`. `truncate_chars` is char-boundary-safe (not
+byte-boundary), tested explicitly with a multi-byte character, so this can never
+panic or emit invalid UTF-8 regardless of what ends up in a reason string.
+
+**`Match.entity_type` note carries forward**: the policy builder's `Cow`-avoidance
+fix (item 23) meant `entity_type` was already `String`, not `&'static str`, by the
+time this task started — no new lifetime/ownership issue was introduced by this
+export work reusing that data downstream.
+
+**CORS `expose_headers` was a real bug caught by testing, not assumed.** The
+download flow reads the real filename from the `Content-Disposition` response
+header (`lib/lango/api-client.ts`'s `downloadComplianceExport`). A first Playwright
+run (mocking the backend response without `Access-Control-Expose-Headers`) produced
+the generic fallback filename instead of the real one — silently "working" (the file
+still downloaded with real content) but with the wrong name, exactly the kind of bug
+that's invisible unless you check the actual downloaded filename, not just that a
+download happened. Added `.expose_headers([CONTENT_DISPOSITION])` to the backend's
+`CorsLayer` (`main.rs`) and re-ran the same test with the header simulated — the
+real filename came through. Documented here because this is a genuinely easy mistake
+to ship silently: the request succeeds, the file downloads, and only the filename is
+wrong.
+
+**Verification**: `backend/tests/compliance_export.rs` — six real `#[sqlx::test]`
+integration tests (date-range filtering excludes out-of-range rows, a real CSV and a
+real PDF are returned with correct `Content-Type`, RBAC on non-`compliance_admin`
+roles, start-after-end rejected, invalid `format` value rejected, cross-tenant
+isolation of the exported data) calling `routes::compliance_export::export`
+directly. Compiles cleanly (`cargo test --test compliance_export --no-run`) but, per
+the same sandbox limitation documented in item 23, was not run against a live
+Postgres here — no database matching this project's credentials was reachable.
+`backend/src/reports.rs` (the pure formatting logic — no DB dependency) DID run and
+pass in full: 6 unit tests including real CSV-quoting verification and real PDF
+structural/round-trip verification (generated an actual PDF, parsed it back with an
+independent Node library, confirmed correct paginated text content). Full backend
+suite: 106 unit tests passing (100 from item 23 + 6 new), zero regressions. Frontend:
+`tsc --noEmit` and `eslint` clean; real-browser Playwright verification of the
+Compliance Export view in both mock mode (375px, honesty message) and a
+network-mocked "live" mode (desktop, real `page.waitForEvent("download")` producing
+a real downloaded file with the correct filename and content, once the CORS fix
+above was in place).

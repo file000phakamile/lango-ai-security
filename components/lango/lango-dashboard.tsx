@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Circle, FileText, HeartPulse, KeyRound, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, Circle, FileDown, FileText, HeartPulse, KeyRound, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
 import { Badge } from "./atoms";
 import { CommandCenter } from "./command-center";
 import { AuditLog } from "./audit-log";
@@ -10,6 +10,7 @@ import { DriftMonitor } from "./drift-monitor";
 import { PilotStatus } from "./pilot-status";
 import { HealthDataGuard } from "./health-data-guard";
 import { PolicyBuilder } from "./policy-builder";
+import { ComplianceExport } from "./compliance-export";
 import { loadDashboardData, type DashboardData } from "@/lib/lango/api-client";
 import type { NavItem } from "@/lib/lango/types";
 
@@ -26,6 +27,8 @@ const NAV: NavItem[] = [
   // Seventh view, added by the policy builder (product-depth task, Part 1).
   // Same "append, don't reorder" convention as `health` above.
   { key: "policy", label: "Policy Builder", Icon: SlidersHorizontal },
+  // Eighth view, added by compliance export (product-depth task, Part 2).
+  { key: "export", label: "Compliance Export", Icon: FileDown },
 ];
 
 export function LangoDashboard() {
@@ -169,6 +172,7 @@ export function LangoDashboard() {
           {view === "pilot" && <PilotStatus />}
           {view === "health" && <HealthDataGuard healthSummary={data.healthSummary} />}
           {view === "policy" && <PolicyBuilder source={data.source} />}
+          {view === "export" && <ComplianceExport source={data.source} />}
         </div>
       </main>
     </div>
