@@ -1,5 +1,5 @@
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde_json::json;
@@ -44,7 +44,7 @@ async fn main() {
         .expect("CORS_ORIGIN must be a valid origin, e.g. http://localhost:3000");
     let cors = CorsLayer::new()
         .allow_origin(cors_origin)
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([axum::http::header::AUTHORIZATION, axum::http::header::CONTENT_TYPE]);
 
     let app = Router::new()
@@ -70,6 +70,20 @@ async fn main() {
         .route(
             "/api/health-data-guard/summary",
             get(routes::health::get_health_summary),
+        )
+        // Policy builder (product-depth task, Part 1) — compliance_admin
+        // only, enforced inside each handler, not just by routing.
+        .route(
+            "/api/policy/settings",
+            get(routes::policy::get_settings).put(routes::policy::update_threshold),
+        )
+        .route(
+            "/api/policy/custom-patterns",
+            post(routes::policy::create_custom_pattern),
+        )
+        .route(
+            "/api/policy/custom-patterns/:id",
+            delete(routes::policy::delete_custom_pattern),
         )
         // No auth required — this is what render.yaml's healthCheckPath
         // (and any external uptime check) hits.

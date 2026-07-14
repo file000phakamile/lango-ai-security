@@ -41,7 +41,7 @@ anything has silently degraded — in language she can act on and defend in an a
 
 ## Screens
 
-The demo has five views, switched via the sidebar (no page navigation — a single
+The demo has seven views, switched via the sidebar (no page navigation — a single
 client-side dashboard component):
 
 1. **Command Center** — Live-feeling overview: KPI tiles (sessions scanned, blocked/
@@ -59,10 +59,23 @@ client-side dashboard component):
    blocked, rate limiting, DoS mitigation).
 5. **Pilot & Sandbox** — Pilot scope and rollout checklist (users onboarded, data
    isolation, consent sign-off) alongside midpoint success metrics against target.
+6. **Health Data Guard** — Cimas Healthathon 3.0 addition (see
+   [HEALTH_MODULE.md](HEALTH_MODULE.md)): standard vs. special-category-health split,
+   redaction rate for special-category rows, and facility-type parity (DIR/SPD) —
+   deliberately no per-condition or per-medication breakdown, to avoid an aggregate
+   view that could out a specific health condition by department.
+7. **Policy Builder** — `compliance_admin`-only. Lets an organisation adjust its own
+   confidence threshold within safe, hard-coded bounds and add organisation-specific
+   structured-identifier patterns (e.g. a bank's own account-number format), applied
+   only to that organisation's own scans. Live-only — deliberately has no mock-data
+   fallback, since a fabricated setting value would misrepresent a number that
+   actually controls live scans (see [Questions.md](../Questions.md) item 23). The
+   near-zero name-confidence floor and the special-category-health hard rule are not
+   shown here as settings because neither is configurable, by anyone.
 
 ## Information architecture
 
-A fixed left sidebar (`LangoDashboard` component) lists all five views with an icon
+A fixed left sidebar (`LangoDashboard` component) lists all seven views with an icon
 and label each; the active view is highlighted with a left border accent and a
 slightly different background. Below the nav, a static footer note reinforces the
 product's core promise ("No raw prompts stored"). The main content area has a header

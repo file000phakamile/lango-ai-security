@@ -118,6 +118,28 @@ export interface NavItem {
   Icon: LucideIcon;
 }
 
+/// Policy builder (product-depth task, Part 1) — see
+/// backend/src/routes/policy.rs and components/lango/policy-builder.tsx.
+/// Live-only: there is no mock-data equivalent (see PolicyBuilder's own
+/// comment for why fabricating settings for a feature that fundamentally
+/// mutates server state would be actively misleading, unlike the read-only
+/// views elsewhere in this dashboard that have a legitimate mock fallback).
+export interface CustomPatternInfo {
+  id: string;
+  entityLabel: string;
+  pattern: string;
+  confidence: number;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface PolicySettings {
+  confidenceThreshold: number;
+  minConfidenceThreshold: number;
+  maxConfidenceThreshold: number;
+  customPatterns: CustomPatternInfo[];
+}
+
 /// Health Data Guard view's summary data — see docs/HEALTH_MODULE.md.
 /// Deliberately has no per-entity-type or per-condition breakdown field;
 /// see backend/src/routes/health.rs's stigma-aware-aggregate-reporting

@@ -44,7 +44,14 @@ pub fn response_scan_result_for(decision: &str) -> &'static str {
 /// match, or the generic fallback with its matched keyword) — see
 /// `reason_string`'s doc comment on `ScanOutcome` for how this surfaces.
 struct Match {
-    entity_type: &'static str,
+    /// Owned, not `&'static str`: custom patterns (policy builder) supply an
+    /// organisation-defined label at request time, which cannot have a
+    /// `'static` lifetime without leaking memory on every matching scan —
+    /// see `resolve_overlaps`'s `FALLBACK_ENTITY_TYPE` comparison and every
+    /// other use-site below, all of which work identically against an owned
+    /// `String` (comparison, `Display`, `.to_string()`) as they did against
+    /// `&'static str`.
+    entity_type: String,
     start: usize,
     end: usize,
     confidence: f32,
@@ -61,7 +68,7 @@ struct Match {
 /// flip — refined below into three tiers rather than a single cutoff, based
 /// on real testing showing the single-cutoff version was overly blunt for
 /// names specifically (see Questions.md).
-const CONFIDENCE_THRESHOLD: f32 = 0.6;
+pub const CONFIDENCE_THRESHOLD: f32 = 0.6;
 
 /// Below this, even a `full_name` match is untrusted enough to block, the
 /// same as any structured entity below `CONFIDENCE_THRESHOLD`. Between this
@@ -90,6 +97,67 @@ const CONFIDENCE_THRESHOLD: f32 = 0.6;
 /// currently more a statement of intent for if/when that heuristic gains
 /// real confidence gradation than something reachable today).
 const NAME_LOW_CONFIDENCE_FLOOR: f32 = 0.30;
+
+// ---------------------------------------------------------------------------
+// Policy builder (product-depth task, Part 1) — per-organisation confidence
+// threshold + custom structured-identifier patterns.
+// ---------------------------------------------------------------------------
+
+/// Safe lower bound for an organisation's configurable `confidence_threshold`
+/// (see `ScanConfig`). Deliberately well above `NAME_LOW_CONFIDENCE_FLOOR`
+/// (0.30) — that floor is NOT configurable and this bound exists precisely
+/// so no organisation setting can ever approach it. Also chosen so the
+/// deliberately-low-confidence structured patterns already in this codebase
+/// (`bank_account` 0.50, `medical_aid_number` 0.55) can never be configured
+/// to always pass just because an org set their threshold to something
+/// absurdly low like 0.05 — 0.50 is the lowest any real primary-pattern
+/// confidence in this codebase goes, so the floor matches that intentionally.
+pub const MIN_ORG_CONFIDENCE_THRESHOLD: f32 = 0.50;
+
+/// Safe upper bound — high enough to let a compliance_admin meaningfully
+/// tighten detection, but never 1.0 (which would make every match "low
+/// confidence" and block everything, a self-inflicted denial of service on
+/// their own staff, not a real security posture).
+pub const MAX_ORG_CONFIDENCE_THRESHOLD: f32 = 0.95;
+
+/// Maximum accepted length of a custom pattern's regex source text — not a
+/// ReDoS defense (Rust's `regex` crate is structurally immune to
+/// catastrophic backtracking, guaranteed linear-time; see
+/// `detection/mod.rs`), just a sane bound against pathological input driving
+/// up compiled-program size or wasting review time.
+pub const MAX_CUSTOM_PATTERN_LENGTH: usize = 200;
+
+/// An organisation-specific structured-identifier pattern (policy builder).
+/// `regex` is pre-compiled once when the config is built for a request, not
+/// per-match — see `routes/policy.rs` for where `pattern` text is validated
+/// (must compile, must stay under a bounded compiled-program size) before
+/// ever being stored.
+pub struct CustomPattern {
+    pub entity_label: String,
+    pub regex: regex::Regex,
+    pub confidence: f32,
+}
+
+/// Per-organisation scan configuration. `Default` reproduces the fixed,
+/// pre-policy-builder behavior exactly (the module constant
+/// `CONFIDENCE_THRESHOLD`, no custom patterns) — so `scan_prompt` below,
+/// used by every existing test and `seed.rs`, is completely unaffected by
+/// this struct existing. Only `routes/scan.rs` (the live request path)
+/// builds a non-default `ScanConfig`, from the calling organisation's
+/// database row.
+pub struct ScanConfig {
+    pub confidence_threshold: f32,
+    pub custom_patterns: Vec<CustomPattern>,
+}
+
+impl Default for ScanConfig {
+    fn default() -> Self {
+        Self {
+            confidence_threshold: CONFIDENCE_THRESHOLD,
+            custom_patterns: Vec::new(),
+        }
+    }
+}
 
 /// Per-entity-type severity weight, used to build the 0-1 risk score.
 /// Reflects roughly how damaging exposure of that entity type is — a
@@ -166,6 +234,18 @@ pub struct ScanOutcome {
 }
 
 pub fn scan_prompt(prompt: &str) -> ScanOutcome {
+    scan_prompt_with_config(prompt, &ScanConfig::default())
+}
+
+/// Same detection pipeline as `scan_prompt`, but with the two policy-builder
+/// knobs: `config.confidence_threshold` in place of the fixed
+/// `CONFIDENCE_THRESHOLD` module constant, and `config.custom_patterns`
+/// matched alongside (never instead of) the built-in detectors. Everything
+/// else — `NAME_LOW_CONFIDENCE_FLOOR`, the special_category_health leniency
+/// hard rule, overlap resolution, redaction — is completely unaffected by
+/// `config`, exactly as the task requires ("that rule is not configurable,
+/// it stays absolute").
+pub fn scan_prompt_with_config(prompt: &str, config: &ScanConfig) -> ScanOutcome {
     // Every detector below pushes CANDIDATE matches into one flat list,
     // with no per-detector overlap skipping — overlap resolution happens
     // exactly once, after every detector has had a chance to see the whole
@@ -189,7 +269,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
                 }
             }
             candidates.push(Match {
-                entity_type: rule.entity_type,
+                entity_type: rule.entity_type.to_string(),
                 start: m.start(),
                 end: m.end(),
                 confidence: rule.confidence,
@@ -210,7 +290,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
     // entity type.
     for hm in health_rules::detect_diagnosis_codes(prompt) {
         candidates.push(Match {
-            entity_type: hm.entity_type,
+            entity_type: hm.entity_type.to_string(),
             start: hm.start,
             end: hm.end,
             confidence: hm.confidence,
@@ -220,7 +300,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
     }
     for hm in health_rules::detect_medications(prompt) {
         candidates.push(Match {
-            entity_type: hm.entity_type,
+            entity_type: hm.entity_type.to_string(),
             start: hm.start,
             end: hm.end,
             confidence: hm.confidence,
@@ -230,7 +310,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
     }
     for hm in health_rules::detect_medical_aid_numbers(prompt) {
         candidates.push(Match {
-            entity_type: hm.entity_type,
+            entity_type: hm.entity_type.to_string(),
             start: hm.start,
             end: hm.end,
             confidence: hm.confidence,
@@ -240,7 +320,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
     }
     for hm in health_rules::detect_lab_result_values(prompt) {
         candidates.push(Match {
-            entity_type: hm.entity_type,
+            entity_type: hm.entity_type.to_string(),
             start: hm.start,
             end: hm.end,
             confidence: hm.confidence,
@@ -258,7 +338,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
         let is_next_of_kin = health_rules::is_next_of_kin_context(prompt, name.start, name.end);
         let entity_type = if is_next_of_kin { "next_of_kin" } else { "full_name" };
         candidates.push(Match {
-            entity_type,
+            entity_type: entity_type.to_string(),
             start: name.start,
             end: name.end,
             confidence: 0.55, // heuristic, not a real NER model — deliberately capped low
@@ -280,13 +360,39 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
     // struct's own doc comment for why that's necessary.
     for fm in fallback::detect_structured_identifiers(prompt) {
         candidates.push(Match {
-            entity_type: fallback::FALLBACK_ENTITY_TYPE,
+            entity_type: fallback::FALLBACK_ENTITY_TYPE.to_string(),
             start: fm.start,
             end: fm.end,
             confidence: fm.confidence,
             sensitivity: fm.sensitivity,
             rule_detail: fm.rule_detail,
         });
+    }
+
+    // 5. Organisation-specific custom patterns (policy builder, product-depth
+    // task Part 1) — matched exactly like the built-in regex rules in step 1
+    // (same `find_iter` shape, same candidate-list path), so they compete on
+    // confidence through the SAME `resolve_overlaps` a specific detector
+    // does, rather than being bolted on as a separate lower- or higher-
+    // priority pass. `sensitivity_class` for a custom label always falls
+    // through to `health_rules::sensitivity_class`'s default arm (Standard)
+    // since an org cannot name a custom pattern one of the five fixed
+    // special_category_health entity types (rejected at creation time in
+    // routes/policy.rs) — so a custom pattern can never accidentally reach
+    // special-category status or its leniency exclusion; it just never
+    // qualifies for `is_leniency_eligible` either way, being a structured
+    // (non-`full_name`) entity type.
+    for cp in &config.custom_patterns {
+        for m in cp.regex.find_iter(prompt) {
+            candidates.push(Match {
+                entity_type: cp.entity_label.clone(),
+                start: m.start(),
+                end: m.end(),
+                confidence: cp.confidence,
+                sensitivity: health_rules::sensitivity_class(&cp.entity_label),
+                rule_detail: "organisation custom pattern match".to_string(),
+            });
+        }
     }
 
     let mut matches: Vec<Match> = resolve_overlaps(candidates);
@@ -307,7 +413,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
 
     let risk_score: f32 = matches
         .iter()
-        .map(|m| severity(m.entity_type))
+        .map(|m| severity(&m.entity_type))
         .sum::<f32>()
         .min(1.0);
 
@@ -335,35 +441,35 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
         |entity_type: &str, sensitivity: SensitivityClass| entity_type == "full_name" && sensitivity != SensitivityClass::SpecialCategoryHealth;
     let min_structured_confidence = matches
         .iter()
-        .filter(|m| !is_leniency_eligible(m.entity_type, m.sensitivity))
+        .filter(|m| !is_leniency_eligible(&m.entity_type, m.sensitivity))
         .map(|m| m.confidence)
         .fold(f32::INFINITY, f32::min);
     let min_name_confidence = matches
         .iter()
-        .filter(|m| is_leniency_eligible(m.entity_type, m.sensitivity))
+        .filter(|m| is_leniency_eligible(&m.entity_type, m.sensitivity))
         .map(|m| m.confidence)
         .fold(f32::INFINITY, f32::min);
 
-    // Tier 3a: any structured entity below CONFIDENCE_THRESHOLD blocks,
-    // unconditionally — no middle band for these types (see
-    // NAME_LOW_CONFIDENCE_FLOOR's doc comment for why).
-    if min_structured_confidence < CONFIDENCE_THRESHOLD {
+    // Tier 3a: any structured entity below the org's configured
+    // confidence_threshold blocks, unconditionally — no middle band for
+    // these types (see NAME_LOW_CONFIDENCE_FLOOR's doc comment for why).
+    if min_structured_confidence < config.confidence_threshold {
         let low_confidence_matches: Vec<&Match> = matches
             .iter()
-            .filter(|m| !is_leniency_eligible(m.entity_type, m.sensitivity) && m.confidence < CONFIDENCE_THRESHOLD)
+            .filter(|m| !is_leniency_eligible(&m.entity_type, m.sensitivity) && m.confidence < config.confidence_threshold)
             .collect();
         let low_confidence_types: Vec<String> = low_confidence_matches
             .iter()
             .map(|m| format!("{} [{}]", m.entity_type, m.rule_detail))
             .collect();
         let low_confidence_entity_types: Vec<&str> =
-            low_confidence_matches.iter().map(|m| m.entity_type).collect();
+            low_confidence_matches.iter().map(|m| m.entity_type.as_str()).collect();
         return blocked_outcome(
             entities_detected,
             risk_score,
             prompt,
             min_structured_confidence,
-            CONFIDENCE_THRESHOLD,
+            config.confidence_threshold,
             &low_confidence_types,
             &low_confidence_entity_types,
             sensitivity_class,
@@ -395,7 +501,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
     // structured is below threshold (tier 3a already returned above if it
     // were). Redact and forward anyway rather than blocking, flagged
     // distinctly for async compliance review — see NAME_LOW_CONFIDENCE_FLOOR.
-    if min_name_confidence < CONFIDENCE_THRESHOLD {
+    if min_name_confidence < config.confidence_threshold {
         return ScanOutcome {
             entities_detected,
             risk_score,
@@ -424,7 +530,7 @@ pub fn scan_prompt(prompt: &str) -> ScanOutcome {
         .map(|m| format!("{} [{}]", m.entity_type, m.rule_detail))
         .collect::<Vec<_>>()
         .join("; ");
-    let matched_entity_types: Vec<&str> = matches.iter().map(|m| m.entity_type).collect();
+    let matched_entity_types: Vec<&str> = matches.iter().map(|m| m.entity_type.as_str()).collect();
     ScanOutcome {
         entities_detected: entities_detected.clone(),
         risk_score,
@@ -594,6 +700,137 @@ mod tests {
         // generic low-confidence api_key fallback and should block, not redact.
         let outcome = scan_prompt("token: aZ9xK2mQ7pL4vN8tR3wY6bC1dF5gH0jS2u");
         assert_eq!(outcome.decision, "blocked_low_confidence");
+    }
+
+    // --- Policy builder (product-depth task, Part 1): ScanConfig /
+    // scan_prompt_with_config ------------------------------------------
+
+    #[test]
+    fn scan_prompt_matches_default_config_exactly() {
+        // scan_prompt must remain byte-for-byte equivalent to
+        // scan_prompt_with_config(prompt, &ScanConfig::default()) — the
+        // whole point of keeping it a thin wrapper is that the other 90+
+        // tests in this module (and seed.rs, and every multi-tenancy
+        // integration test) never had to change for this feature to exist.
+        let prompt = "Please verify national ID 63-123456A23 for admission.";
+        let a = scan_prompt(prompt);
+        let b = scan_prompt_with_config(prompt, &ScanConfig::default());
+        assert_eq!(a.decision, b.decision);
+        assert_eq!(a.entities_detected, b.entities_detected);
+        assert_eq!(a.redacted_prompt, b.redacted_prompt);
+        assert_eq!(a.risk_score, b.risk_score);
+    }
+
+    #[test]
+    fn org_custom_pattern_is_detected_and_redacted() {
+        // A hypothetical bank-specific account format ("ACME-" followed by 8
+        // digits) that no built-in detector recognizes at all.
+        let config = ScanConfig {
+            confidence_threshold: CONFIDENCE_THRESHOLD,
+            custom_patterns: vec![CustomPattern {
+                entity_label: "acme_account_number".to_string(),
+                regex: regex::Regex::new(r"ACME-\d{8}").unwrap(),
+                confidence: 0.90,
+            }],
+        };
+        let outcome =
+            scan_prompt_with_config("Please close account ACME-12345678 today.", &config);
+        assert_eq!(outcome.decision, "redacted_and_forwarded");
+        assert!(outcome.entities_detected.contains(&"acme_account_number".to_string()));
+        assert!(!outcome.redacted_prompt.contains("ACME-12345678"));
+        assert!(outcome.redacted_prompt.contains("[REDACTED:ACME_ACCOUNT_NUMBER]"));
+    }
+
+    #[test]
+    fn org_custom_pattern_is_not_detected_without_the_config() {
+        // The exact same prompt, scanned with the default config (no custom
+        // pattern registered) — must NOT be flagged. Proves custom patterns
+        // are genuinely opt-in per organisation, not a change to the
+        // built-in detector set.
+        let outcome = scan_prompt("Please close account ACME-12345678 today.");
+        assert!(!outcome.entities_detected.contains(&"acme_account_number".to_string()));
+    }
+
+    #[test]
+    fn org_custom_pattern_cannot_reach_special_category_health_leniency() {
+        // A custom pattern's sensitivity always falls through
+        // health_rules::sensitivity_class's default arm (Standard), since an
+        // org cannot name a custom label one of the five fixed
+        // special_category_health types (enforced in routes/policy.rs, not
+        // here) — so it is a structured (non-full_name) entity type and
+        // therefore never leniency-eligible either way. This test locks
+        // that a low-confidence custom-pattern match blocks, exactly like
+        // any other low-confidence structured entity — it does NOT get
+        // tier-2 review treatment.
+        // Lowercase "custref-" + 5 digits deliberately doesn't collide with
+        // any built-in detector's shape: MEDICAL_AID_NUMBER_RE requires
+        // uppercase letters (`[A-Z]{2,6}-?\d{6,9}`), BANK_ACCOUNT_RE requires
+        // 10-13 contiguous digits with nothing else, NATIONAL_ID_RE and the
+        // MRN pattern need their own specific literal shapes — none of which
+        // this matches. The prompt also avoids every keyword in
+        // entity_meta.rs, so the generic fallback never gates open either.
+        // This custom pattern is genuinely the only thing that can match.
+        let config = ScanConfig {
+            confidence_threshold: CONFIDENCE_THRESHOLD,
+            custom_patterns: vec![CustomPattern {
+                entity_label: "acme_loose_ref".to_string(),
+                regex: regex::Regex::new(r"custref-\d{5}").unwrap(),
+                confidence: 0.40, // deliberately below CONFIDENCE_THRESHOLD
+            }],
+        };
+        let outcome = scan_prompt_with_config(
+            "Customer quoted custref-12345 for the courier pickup.",
+            &config,
+        );
+        assert_eq!(outcome.entities_detected, vec!["acme_loose_ref".to_string()]);
+        assert_eq!(outcome.decision, "blocked_low_confidence");
+        assert_eq!(outcome.sensitivity_class, "standard");
+    }
+
+    #[test]
+    fn org_configured_confidence_threshold_changes_the_block_boundary() {
+        // bank_account's primary pattern is fixed at 0.50 confidence
+        // (rules.rs) — below the SYSTEM default CONFIDENCE_THRESHOLD (0.60),
+        // so it blocks under the default config (see
+        // low_confidence_structured_entity_still_blocks above). An org that
+        // has lowered ITS OWN threshold to exactly 0.50 (the safe floor,
+        // MIN_ORG_CONFIDENCE_THRESHOLD) must see the same match clear
+        // instead, proving the org setting genuinely changes the boundary,
+        // not just the audit text.
+        let prompt = "Please refund via account 9988776655443 once approved.";
+        let default_outcome = scan_prompt(prompt);
+        assert_eq!(default_outcome.decision, "blocked_low_confidence");
+
+        let lowered_config = ScanConfig {
+            confidence_threshold: MIN_ORG_CONFIDENCE_THRESHOLD,
+            custom_patterns: vec![],
+        };
+        let lowered_outcome = scan_prompt_with_config(prompt, &lowered_config);
+        assert_eq!(lowered_outcome.decision, "redacted_and_forwarded");
+        assert!(!lowered_outcome.redacted_prompt.contains("9988776655443"));
+    }
+
+    #[test]
+    fn org_configured_confidence_threshold_never_touches_the_name_floor_or_the_health_hard_rule() {
+        // Even with the org threshold set to its maximum
+        // (MAX_ORG_CONFIDENCE_THRESHOLD), NAME_LOW_CONFIDENCE_FLOOR and the
+        // special_category_health leniency exclusion must behave exactly as
+        // they do under the system default — neither is threaded through
+        // ScanConfig at all, so this is really a compile-time guarantee,
+        // but this test locks the observable behavior too. Reuses the exact
+        // prompt from
+        // low_confidence_special_category_health_never_gets_review_flag_blocks_instead.
+        let config = ScanConfig {
+            confidence_threshold: MAX_ORG_CONFIDENCE_THRESHOLD,
+            custom_patterns: vec![],
+        };
+        let outcome = scan_prompt_with_config(
+            "Next of kin: John Moyo, please contact if condition worsens.",
+            &config,
+        );
+        assert_eq!(outcome.sensitivity_class, "special_category_health");
+        assert_eq!(outcome.decision, "blocked_low_confidence");
+        assert!(outcome.redacted_prompt.contains("John Moyo"));
     }
 
     // --- Three-tier confidence handling (see NAME_LOW_CONFIDENCE_FLOOR's
@@ -849,7 +1086,7 @@ mod tests {
     fn resolve_overlaps_keeps_only_the_highest_confidence_match_for_a_contested_span() {
         let candidates = vec![
             Match {
-                entity_type: "bank_account",
+                entity_type: "bank_account".to_string(),
                 start: 10,
                 end: 20,
                 confidence: 0.5,
@@ -857,7 +1094,7 @@ mod tests {
                 rule_detail: "primary pattern match".to_string(),
             },
             Match {
-                entity_type: "national_id",
+                entity_type: "national_id".to_string(),
                 start: 12,
                 end: 22, // overlaps the bank_account candidate above
                 confidence: 0.85,
@@ -865,7 +1102,7 @@ mod tests {
                 rule_detail: "primary pattern match".to_string(),
             },
             Match {
-                entity_type: "phone_number",
+                entity_type: "phone_number".to_string(),
                 start: 40,
                 end: 50, // does not overlap anything — must survive independently
                 confidence: 0.9,
@@ -890,7 +1127,7 @@ mod tests {
         // wins).
         let candidates = vec![
             Match {
-                entity_type: fallback::FALLBACK_ENTITY_TYPE,
+                entity_type: fallback::FALLBACK_ENTITY_TYPE.to_string(),
                 start: 0,
                 end: 10,
                 confidence: 0.70,
@@ -898,7 +1135,7 @@ mod tests {
                 rule_detail: "generic structured-identifier fallback".to_string(),
             },
             Match {
-                entity_type: "medical_aid_number",
+                entity_type: "medical_aid_number".to_string(),
                 start: 0,
                 end: 10,
                 confidence: 0.55,

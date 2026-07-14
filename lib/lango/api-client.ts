@@ -16,6 +16,7 @@ import type {
   EntityType,
   HealthSummary,
   ParityEntry,
+  PolicySettings,
   SecurityEvent,
   SensitivityClass,
 } from "./types";
@@ -256,3 +257,97 @@ export async function loadDashboardData(): Promise<DashboardData> {
 // Re-exported so callers that only need the department list (e.g. static
 // UI copy) don't need to import from mock-data.ts directly.
 export { DEPARTMENTS };
+
+// ---------------------------------------------------------------------------
+// Policy builder (product-depth task, Part 1) — mutating calls, so each one
+// re-authenticates via `login()` rather than reusing a token cached from the
+// dashboard's initial read-only load. This module has never persisted a
+// token across calls (see `login()`'s own doc comment: the whole dashboard
+// authenticates transparently as a fixed demo account, a v0.1 shortcut, not
+// a production pattern) — one extra round trip per mutating action is a
+// small price for not introducing token-caching/refresh logic just for this
+// feature. Live-only, deliberately: unlike the read-only views above, there
+// is no mock-data fallback for policy settings, since fabricating a
+// threshold value or a list of custom patterns that don't actually exist
+// anywhere would be actively misleading for a feature whose entire point is
+// "this number is what really controls live scans" (see PolicyBuilder.tsx).
+// ---------------------------------------------------------------------------
+
+interface PolicySettingsResponse {
+  confidence_threshold: number;
+  min_confidence_threshold: number;
+  max_confidence_threshold: number;
+  custom_patterns: Array<{
+    id: string;
+    entity_label: string;
+    pattern: string;
+    confidence: number;
+    active: boolean;
+    created_at: string;
+  }>;
+}
+
+function toPolicySettings(r: PolicySettingsResponse): PolicySettings {
+  return {
+    confidenceThreshold: r.confidence_threshold,
+    minConfidenceThreshold: r.min_confidence_threshold,
+    maxConfidenceThreshold: r.max_confidence_threshold,
+    customPatterns: r.custom_patterns.map((p) => ({
+      id: p.id,
+      entityLabel: p.entity_label,
+      pattern: p.pattern,
+      confidence: p.confidence,
+      active: p.active,
+      createdAt: p.created_at,
+    })),
+  };
+}
+
+async function authedRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const token = await login();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    // Surface the backend's own message (e.g. the exact safe-bounds
+    // rejection text) rather than a generic "request failed" — the policy
+    // builder shows this string directly to the compliance_admin.
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(detail?.error?.message ?? `${path} failed: HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export async function fetchPolicySettings(): Promise<PolicySettings> {
+  return toPolicySettings(await authedRequest<PolicySettingsResponse>("/api/policy/settings", "GET"));
+}
+
+export async function updatePolicyThreshold(confidenceThreshold: number): Promise<PolicySettings> {
+  return toPolicySettings(
+    await authedRequest<PolicySettingsResponse>("/api/policy/settings", "PUT", {
+      confidence_threshold: confidenceThreshold,
+    }),
+  );
+}
+
+export async function createCustomPattern(
+  entityLabel: string,
+  pattern: string,
+  confidence?: number,
+): Promise<PolicySettings> {
+  return toPolicySettings(
+    await authedRequest<PolicySettingsResponse>("/api/policy/custom-patterns", "POST", {
+      entity_label: entityLabel,
+      pattern,
+      confidence,
+    }),
+  );
+}
+
+export async function deleteCustomPattern(id: string): Promise<PolicySettings> {
+  return toPolicySettings(
+    await authedRequest<PolicySettingsResponse>(`/api/policy/custom-patterns/${id}`, "DELETE"),
+  );
+}

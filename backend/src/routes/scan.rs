@@ -1,8 +1,12 @@
 use axum::{extract::State, Json};
+use regex::Regex;
 
 use crate::{
     auth::AuthUser,
-    detection::scan::{hash_prompt, response_scan_result_for, scan_prompt, NO_PROVIDER_MODEL_LABEL},
+    detection::scan::{
+        hash_prompt, response_scan_result_for, scan_prompt_with_config, CustomPattern,
+        ScanConfig, NO_PROVIDER_MODEL_LABEL,
+    },
     error::{AppError, AppResult},
     models::{ScanRequest, ScanResponse},
     state::AppState,
@@ -50,7 +54,53 @@ pub async fn scan(
         ));
     }
 
-    let outcome = scan_prompt(&payload.prompt);
+    // Policy builder (product-depth task, Part 1): load this organisation's
+    // configured confidence threshold (falling back to the system default
+    // if they've never customized it) and active custom patterns, fresh on
+    // every scan — same "read live from the DB, never from the JWT"
+    // reasoning as the consent check above, since an org's policy can
+    // change between token issuance and this request. A custom pattern
+    // whose stored regex somehow fails to recompile (it was validated at
+    // creation time in routes/policy.rs, so this should never happen) is
+    // skipped rather than failing the whole scan — a missing custom
+    // detector is a lesser failure than blocking every request for the
+    // organisation.
+    let org_confidence_threshold: f32 = sqlx::query_scalar(
+        "SELECT confidence_threshold FROM organisation_detection_settings WHERE organisation_id = $1",
+    )
+    .bind(claims.organisation_id)
+    .fetch_optional(&state.db)
+    .await?
+    .unwrap_or(crate::detection::scan::CONFIDENCE_THRESHOLD);
+
+    let custom_pattern_rows: Vec<(String, String, f32)> = sqlx::query_as(
+        r#"
+        SELECT entity_label, pattern, confidence
+        FROM organisation_custom_patterns
+        WHERE organisation_id = $1 AND active = true
+        "#,
+    )
+    .bind(claims.organisation_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let custom_patterns: Vec<CustomPattern> = custom_pattern_rows
+        .into_iter()
+        .filter_map(|(entity_label, pattern, confidence)| {
+            Regex::new(&pattern).ok().map(|regex| CustomPattern {
+                entity_label,
+                regex,
+                confidence,
+            })
+        })
+        .collect();
+
+    let scan_config = ScanConfig {
+        confidence_threshold: org_confidence_threshold,
+        custom_patterns,
+    };
+
+    let outcome = scan_prompt_with_config(&payload.prompt, &scan_config);
     let original_prompt_hash = hash_prompt(&payload.prompt);
     let response_scan_result = response_scan_result_for(outcome.decision);
 

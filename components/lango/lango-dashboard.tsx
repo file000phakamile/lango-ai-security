@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Circle, FileText, HeartPulse, KeyRound, Menu, Radio, Scale, Shield, X } from "lucide-react";
+import { AlertTriangle, Circle, FileText, HeartPulse, KeyRound, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
 import { Badge } from "./atoms";
 import { CommandCenter } from "./command-center";
 import { AuditLog } from "./audit-log";
@@ -9,6 +9,7 @@ import { FairnessAudit } from "./fairness-audit";
 import { DriftMonitor } from "./drift-monitor";
 import { PilotStatus } from "./pilot-status";
 import { HealthDataGuard } from "./health-data-guard";
+import { PolicyBuilder } from "./policy-builder";
 import { loadDashboardData, type DashboardData } from "@/lib/lango/api-client";
 import type { NavItem } from "@/lib/lango/types";
 
@@ -22,6 +23,9 @@ const NAV: NavItem[] = [
   // docs/HEALTH_MODULE.md). Appended, not inserted — the five existing
   // entries above keep their original order and keys unchanged.
   { key: "health", label: "Health Data Guard", Icon: HeartPulse },
+  // Seventh view, added by the policy builder (product-depth task, Part 1).
+  // Same "append, don't reorder" convention as `health` above.
+  { key: "policy", label: "Policy Builder", Icon: SlidersHorizontal },
 ];
 
 export function LangoDashboard() {
@@ -164,6 +168,7 @@ export function LangoDashboard() {
           {view === "drift" && <DriftMonitor weeks={data.driftWeeks} securityEvents={data.securityEvents} />}
           {view === "pilot" && <PilotStatus />}
           {view === "health" && <HealthDataGuard healthSummary={data.healthSummary} />}
+          {view === "policy" && <PolicyBuilder source={data.source} />}
         </div>
       </main>
     </div>

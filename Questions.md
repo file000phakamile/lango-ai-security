@@ -859,3 +859,118 @@ report), 768px, 1024px, and 1280px** — real Playwright screenshots plus a
 confirming zero page-level horizontal overflow anywhere in the tested range, not
 just "looks fine in the one screenshot I took." 1024px/1280px screenshots confirm
 desktop is visually unchanged from before this fix.
+
+## 23. Policy builder (product-depth task, Part 1) — design and judgment calls
+
+**`scan_prompt` kept its exact original signature** rather than growing a config
+parameter. There are 32 existing call sites (every test in `scan.rs`'s own test
+module, `seed.rs`, and three multi-tenancy integration test files) that call
+`scan_prompt(prompt)` with one argument. Rather than touching all 32, `scan_prompt`
+is now a one-line wrapper around a new `scan_prompt_with_config(prompt, &ScanConfig
+::default())`; `ScanConfig::default()` reproduces the fixed pre-existing behavior
+exactly (locked by a new test, `scan_prompt_matches_default_config_exactly`). Only
+`routes/scan.rs` — the live, org-aware request path — calls the configurable
+function directly, with settings fetched fresh from the database per request (same
+"never trust the JWT for something that can change after token issuance" reasoning
+already used for the consent gate).
+
+**Safe bounds chosen as [0.50, 0.95], not [`NAME_LOW_CONFIDENCE_FLOOR`, 1.0]**. The
+task said "never below the near-zero fail-closed floor" — that floor
+(`NAME_LOW_CONFIDENCE_FLOOR`, 0.30) is a full_name-specific constant, not itself a
+sane lower bound for a general org-configurable threshold: this codebase's own
+deliberately-low-confidence structured detectors (`bank_account` at 0.50,
+`medical_aid_number` at 0.55) would become permanently unblockable if an org could
+set the threshold anywhere near 0.30. 0.50 was chosen instead — the lowest real
+primary-pattern confidence anywhere in this codebase — so no org setting can make
+those detectors' own deliberate fail-closed tuning meaningless. Upper bound 0.95,
+not 1.0: a threshold of 1.0 would make literally every match "low confidence" and
+block every request, which is a self-inflicted denial of service on an org's own
+staff, not a real security posture. Both bounds are named constants
+(`MIN_ORG_CONFIDENCE_THRESHOLD` / `MAX_ORG_CONFIDENCE_THRESHOLD` in
+`detection/scan.rs`), enforced in three independent places: the DB `CHECK`
+constraint (migration 0013), the API handler (`routes/policy.rs`, returns a clean
+400), and — per the task's explicit instruction to "test the API directly, do not
+just trust the UI" — a real `#[sqlx::test]` integration test
+(`compliance_admin_cannot_set_threshold_below_the_safe_floor`) that calls the route
+handler function directly, not through the dashboard.
+
+**`Match.entity_type` changed from `&'static str` to `String`** (an internal-only
+struct, not part of any public API). Custom patterns supply an organisation-defined
+label at request time, which cannot have a `'static` lifetime — an early draft used
+`Box::leak` to fabricate one, which would leak memory on every single matching scan
+for the lifetime of the process. Caught before it shipped by thinking through what
+"per-request `'static` string" actually implies, not by a test (a leak doesn't fail
+a test, it just never gets freed). Changed the field to an owned `String` instead;
+every existing use-site (comparisons, `Display`, `.to_string()`) works identically
+against a `String` as it did a `&'static str`, so this was a pure internal fix with
+zero external behavior change (all 94 pre-existing tests still pass unchanged).
+
+**Custom pattern entity labels are validated against a reserved-word list** (the
+built-in entity types) and a strict charset (`^[a-z][a-z0-9_]{2,39}$`), both so a
+custom pattern can never masquerade as or collide with a real detector's output, and
+— more importantly — so it can never accidentally become `special_category_health`:
+that classification is a fixed mapping over exactly five hardcoded type names
+(`health_rules::sensitivity_class`), and since a custom label can never equal one of
+those five, a custom pattern's sensitivity always falls through to the default
+`Standard` arm. This is how the task's absolute requirement ("the sensitivity-class
+hard rule... is not configurable, it stays absolute") is actually enforced
+structurally, not just by omitting a setting from the UI — locked by
+`org_custom_pattern_cannot_reach_special_category_health_leniency` in `scan.rs`.
+
+**Custom pattern regex validated with a `size_limit`, not just "does it compile."**
+Rust's `regex` crate is structurally immune to catastrophic backtracking (documented
+in `detection/mod.rs` from the original detection-engine task), so ReDoS was never a
+risk regardless of what an org submits. What IS a real risk: a pathological pattern
+whose compiled NFA/DFA program is simply too large in memory, independent of match
+speed (e.g. deeply nested bounded repetition). `RegexBuilder::new(pattern)
+.size_limit(1_000_000)` catches this at creation time and rejects it with a clear
+400, on top of a flat 200-character cap on the pattern source text itself.
+
+**No "toggle active" endpoint for custom patterns, only create/delete.** The task
+didn't ask for a pause/resume state — DELETE removing a pattern entirely is the
+simplest correct CRUD surface for v1 and was left there rather than adding an unused
+PATCH endpoint speculatively. The `active` column exists in the schema (for a
+possible future toggle) but every custom pattern created today is `active = true`
+and stays that way until deleted.
+
+**Dashboard UI: a new sidebar view, not a section of an existing one.** Considered
+adding this as a tab within Fairness Audit or Drift & Security (both already
+compliance_admin-oriented), but neither is conceptually about detection
+*configuration* — Policy Builder is model behavior an admin edits, not a report an
+admin reads, which felt like a different enough category of screen to warrant its
+own nav entry (matches how "Health Data Guard" got its own view rather than being
+folded into Audit Log). Appended as the seventh nav item, after Health Data Guard,
+following this codebase's existing "append, don't reorder" convention for new views.
+
+**No mock-data fallback for Policy Builder, unlike every other view.** Every other
+view has a `mock-data.ts` equivalent so the dashboard shows *something* when the
+backend is unreachable (e.g. the deployed Vercel demo). Policy Builder is different
+in kind: fabricating a threshold value or a list of custom patterns that don't
+actually exist would misrepresent a setting whose entire point is "this number is
+what really controls live scans right now." When `data.source !== "live"`, the view
+shows an explicit, honest message instead of fake data — verified visually (both
+desktop and 375px, via Playwright with mocked network responses simulating a live
+backend, since no Postgres matching this project's credentials was reachable in this
+sandbox — see the note on integration-test execution below).
+
+**Integration test execution: written and compiled, but not run against a live DB
+in this sandbox.** A port 5432 Postgres was found listening locally, but it belongs
+to an unrelated instance (`password authentication failed for user "lango"`, a
+different install, not this project's `docker-compose.yml`, which maps 5432 and
+wasn't reachable via Docker here either — consistent with the earlier Dockerfile
+fix in this same session, where Docker was also unavailable). `backend/tests
+/policy_builder.rs` was written as a real, non-mocked integration test (same
+`#[sqlx::test]` pattern as `multi_tenant_isolation.rs`, calling the actual route
+handlers) covering: threshold bounds accepted/rejected at and past both edges, RBAC
+on every policy endpoint, invalid-regex and reserved-label pattern rejection,
+cross-tenant isolation of both settings and custom patterns, and two full
+`/api/scan`-level end-to-end tests proving an org's configured threshold and custom
+pattern are actually applied live, not just accepted and echoed back by the settings
+endpoint. It compiles cleanly (`cargo test --test policy_builder --no-run`
+succeeds) and is ready to run via `cargo test --test policy_builder` the moment a
+matching Postgres is available — but that run itself did not happen here, and this
+is stated plainly rather than implied otherwise. What did run and pass in this
+sandbox: all 94 pre-existing unit tests (`cargo test --lib`, zero regressions) plus
+6 new `scan_prompt_with_config`/`ScanConfig` unit tests (100 total), and full
+frontend `tsc --noEmit` + `eslint` + real-browser Playwright verification (both
+mock-mode and network-mocked "live" mode, desktop and 375px) of the UI.

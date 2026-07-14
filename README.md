@@ -31,9 +31,9 @@ what an institution's compliance and security team would see once Lango is deplo
 
 **Live demo:** https://lango-app-dusky.vercel.app
 
-The five views (sidebar navigation): Command Center, Audit Log, Fairness Audit,
-Drift & Security, and Pilot & Sandbox. See [docs/UX_DESIGN.md](docs/UX_DESIGN.md) for
-what each one shows and why.
+The seven views (sidebar navigation): Command Center, Audit Log, Fairness Audit,
+Drift & Security, Pilot & Sandbox, Health Data Guard, and Policy Builder. See
+[docs/UX_DESIGN.md](docs/UX_DESIGN.md) for what each one shows and why.
 
 A narrated walkthrough script for a screen recording of this demo is at
 [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md); slide-by-slide pitch content is at
@@ -149,6 +149,29 @@ Real, working, non-simulated code — with real limits, documented honestly:
   async compliance review. Real logic, not a random coin flip like the old mock data
   used — see docs/SECURITY_PRIVACY.md's Human oversight row for the compliance framing
   of this tradeoff.
+
+### Policy builder (v0.1)
+
+A `compliance_admin` can adjust two things for their own organisation, within safe
+hard-coded bounds, from the **Policy Builder** dashboard view (`/api/policy/*`,
+`backend/src/routes/policy.rs`):
+
+- **Confidence threshold** — replaces the fixed 0.60 default per organisation,
+  clamped server-side to `[0.50, 0.95]` (`MIN_ORG_CONFIDENCE_THRESHOLD` /
+  `MAX_ORG_CONFIDENCE_THRESHOLD` in `backend/src/detection/scan.rs`), enforced by a
+  database `CHECK` constraint AND the API handler, not just client-side validation.
+- **Organisation-specific structured-identifier patterns** — a custom regex + label
+  (e.g. a specific bank's own account-number format), matched alongside the built-in
+  detectors and applied only to that organisation's own scans.
+
+What is explicitly **not** configurable, by anyone, from anywhere: the near-zero
+`NAME_LOW_CONFIDENCE_FLOOR` (0.30) and the special-category-health-data leniency
+exclusion (a low-confidence match on diagnosis codes, medications, medical aid
+numbers, lab values, or next-of-kin names always fails closed — it never gets the
+lenient review path a low-confidence name gets). Neither is threaded through the
+per-organisation config at all — see [Questions.md](Questions.md) item 23 for the
+full design writeup, including how a custom pattern is structurally prevented from
+ever reaching special-category-health status.
 
 ## Data
 
@@ -272,11 +295,24 @@ two halves of the real system:
 
 ## Tests
 
-Backend: `detection::scan` and `detection::drift` have real unit tests
-(`cd backend && cargo test`) covering the regex rules, the Luhn check, the
-fail-closed threshold, and the PSI/KL-divergence math. There is no integration or
-end-to-end test suite yet, and no frontend test suite — an honest gap, not an
-oversight we're hiding. See [Known Limitations](#known-limitations) and
+**Backend unit tests** (`cd backend && cargo test --lib`, no database needed): 100
+tests across `detection::scan`, `detection::rules`, `detection::health_rules`,
+`detection::fallback`, `detection::tokenize`, and `detection::plain_language` —
+regex rules, the Luhn check, the three-tier fail-closed confidence handling, the
+special-category-health hard rule, the policy builder's `ScanConfig`/custom-pattern
+path, and the PSI/KL-divergence math.
+
+**Backend integration tests** (`cd backend && cargo test`, requires a real Postgres
+reachable via `DATABASE_URL` — see [Setup](#full-stack-real-backend--real-data)):
+`backend/tests/multi_tenant_isolation.rs`, `consent_flow.rs`,
+`organisation_signup.rs`, and `policy_builder.rs`, each using `#[sqlx::test]`
+against a freshly-migrated throwaway database and calling real route handlers
+directly (no HTTP server, no mocks) — cross-tenant isolation, the consent gate, org
+signup, and the policy builder's safe-bounds enforcement (including a direct test
+that an out-of-range threshold is rejected by the API itself, not just the UI).
+
+No frontend automated test suite yet — an honest gap, not an oversight we're hiding.
+See [Known Limitations](#known-limitations) and
 [docs/TESTING_LOG.md](docs/TESTING_LOG.md), which tracks manual click-through testing
 of the dashboard views.
 

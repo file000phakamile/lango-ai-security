@@ -128,6 +128,44 @@ pub struct OrganisationSignupRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Policy builder (product-depth task, Part 1) — see routes/policy.rs and
+// migration 0013_create_policy_builder.sql.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, sqlx::FromRow, Serialize)]
+pub struct CustomPatternResponse {
+    pub id: Uuid,
+    pub entity_label: String,
+    pub pattern: String,
+    pub confidence: f32,
+    pub active: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PolicySettingsResponse {
+    pub confidence_threshold: f32,
+    /// Echoed back alongside the value itself so the dashboard can render
+    /// the safe range (and reject client-side before even calling the API)
+    /// without hard-coding the bounds in two places.
+    pub min_confidence_threshold: f32,
+    pub max_confidence_threshold: f32,
+    pub custom_patterns: Vec<CustomPatternResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateThresholdRequest {
+    pub confidence_threshold: f32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCustomPatternRequest {
+    pub entity_label: String,
+    pub pattern: String,
+    pub confidence: Option<f32>,
+}
+
+// ---------------------------------------------------------------------------
 // Scan
 // ---------------------------------------------------------------------------
 
