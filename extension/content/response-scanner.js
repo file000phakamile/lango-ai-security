@@ -52,13 +52,35 @@ const LangoResponseScanner = (() => {
 
   function init(adapter) {
     if (typeof adapter.findLatestResponseTurn !== "function") return;
-    const observer = new MutationObserver(() => onMutation(adapter));
+    const observer = new MutationObserver((mutations) => onMutation(adapter, mutations));
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
-  function onMutation(adapter) {
+  // Performance pass, Step 2/3: this used to reset the debounce timer on
+  // ANY mutation anywhere in document.body — a suggestion chip fading in, a
+  // "regenerate" button appearing, or any other unrelated page chrome
+  // change would restart the full DEBOUNCE_MS wait just as much as new
+  // response text would, even after the response itself had genuinely
+  // finished rendering. That's a real, measured contributor to the 11-15s
+  // real-world wait item 31 found (see Questions.md's Step 2 write-up) —
+  // longer than "streaming time + one clean debounce tail" predicts. Fixed
+  // by actually looking at the MutationRecords the observer already
+  // receives (previously discarded) and only treating the response as
+  // still-changing if at least one mutation's target is inside the
+  // response element itself. DEBOUNCE_MS is NOT lowered — this makes the
+  // "wait until the response has genuinely stopped changing" guarantee
+  // more accurate, not weaker: it still waits the full measured-safe 4000ms
+  // after the response itself last changed, it just stops being fooled by
+  // unrelated page activity into waiting longer than that.
+  function onMutation(adapter, mutations) {
     const latest = adapter.findLatestResponseTurn();
     if (!latest || scannedElements.has(latest)) return;
+
+    const isNewResponseTurn = latest !== pendingElement;
+    const mutationTouchesResponse =
+      isNewResponseTurn || mutations.some((m) => latest.contains(m.target));
+    if (!mutationTouchesResponse) return;
+
     pendingElement = latest;
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => onStable(), DEBOUNCE_MS);

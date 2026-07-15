@@ -25,13 +25,21 @@ name: Uptime Check
 
 on:
   schedule:
-    # Every 30 minutes. Render's free tier spins the backend down after
-    # ~15 minutes of no traffic (see README.md's Deployment section) — this
-    # interval is short enough to catch a real outage reasonably quickly,
-    # long enough not to be the sole reason the backend never gets to idle
-    # (this check is not intended as a keep-alive mechanism, just an honest
-    # side effect of also being one).
-    - cron: "*/30 * * * *"
+    # Every 10 minutes — changed from 30 in the performance pass (Step 2/3),
+    # deliberately now under Render's free-tier ~15-minute spin-down window,
+    # specifically so this ALSO acts as a keep-alive mitigation, not just an
+    # outage check. This is a real, honest change of intent, not just a
+    # number tweak: item 32/33 (Questions.md) measured a genuine 13.85s cold
+    # start on this backend — by far the largest latency number found in
+    # that whole report — and this is the zero-new-cost mitigation chosen
+    # for it (see Questions.md's Step 2 write-up for why the real fix, a
+    # paid Render tier removing spin-down entirely, was deferred to the
+    # user's own billing decision rather than made here). This does NOT
+    # guarantee zero cold starts — a request landing between two scheduled
+    # ticks, or right after this workflow's own outage, can still hit a
+    # cold instance — so it's a mitigation, not a fix, and is documented as
+    # such rather than implied to fully solve the problem.
+    - cron: "*/10 * * * *"
   # Lets anyone with write access trigger a check on demand — e.g. right
   # after a deploy, without waiting for the next scheduled tick.
   workflow_dispatch: {}

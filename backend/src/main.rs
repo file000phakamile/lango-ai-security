@@ -34,8 +34,17 @@ async fn main() {
 
     let config = Config::from_env();
 
+    // Performance pass, Step 2/3: `min_connections(2)` keeps a couple of
+    // connections warm rather than the pool's previous fully-lazy default
+    // (0 idle connections), so a request arriving after any idle period
+    // doesn't also pay a fresh Postgres TCP+TLS+auth handshake on top of
+    // the connection-pool acquire itself. Kept deliberately small — Render's
+    // free-tier Postgres has a real, limited connection cap shared with
+    // everything else touching this database, and this is a demo/pilot-
+    // scale workload, not one that needs many warm connections held open.
     let db = PgPoolOptions::new()
         .max_connections(10)
+        .min_connections(2)
         .connect(&config.database_url)
         .await
         .expect("failed to connect to Postgres — is it running? see docker-compose.yml");

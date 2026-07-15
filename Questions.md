@@ -2331,3 +2331,63 @@ itself (already confirmed microsecond-scale, HMAC-SHA256, no realistic caching
 opportunity since the token string changes every login) and the detection engine
 (34-757µs, orders of magnitude below everything else measured). Listed here so
 it's clear these were checked and deliberately left alone, not overlooked.
+
+## 34. Performance pass, Step 3 — implementation, and real before/after numbers
+
+Implemented every fix chosen in item 33. Backend: `backend/src/routes/scan.rs`'s
+`scan()` now runs `check_consent` and `load_scan_config` via `tokio::try_join!`
+instead of two sequential `.await`s; `load_scan_config` itself now runs its
+threshold and custom-pattern queries the same way;
+`backend/src/routes/response_scan.rs`'s handler now runs `check_consent` and the
+ownership lookup concurrently (with `load_scan_config` deliberately still
+sequential, after the ownership check, per item 33's reasoning). `backend/src/main.rs`'s
+pool now sets `min_connections(2)`. `.github/workflows/uptime-check.yml`'s cron
+tightened from every 30 minutes to every 10, with its comments rewritten to state
+the new, deliberate keep-alive intent honestly rather than leaving the old "not
+intended as a keep-alive" framing standing now that it's wrong.
+`lib/lango/api-client.ts` now caches the JWT (`getToken()`) and reuses it across
+every read and mutating call, re-fetching only on a real 401 or an empty cache —
+required before Step 5's polling, not optional. `extension/content/response-scanner.js`'s
+`MutationObserver` callback now inspects the `MutationRecord`s it receives (previously
+discarded) and only resets the debounce timer when a mutation actually touches the
+response element itself, not any page mutation anywhere.
+
+**Real before/after measurement for the response-scanner fix** (the one most
+directly amenable to a live before/after, since item 31 already established a
+real, repeatable baseline against `gemini.google.com` using the same method):
+reran the identical live test — real loaded extension, real `gemini.google.com`
+session, local mock backend returning `flagged: true` — with only the
+`MutationObserver` scoping fix applied (nothing else in the environment changed).
+**Before (item 31, two real runs): ~11.3s and ~13-15s**, Enter-press to flagged
+banner visible. **After (this session, two real runs): 9,217ms and 8,243ms.** A
+real, reproducible, ~25-40% reduction, directly attributable to no longer
+resetting the debounce timer on unrelated page mutations — confirmed by the fact
+that nothing else (network, backend, prompt content, DEBOUNCE_MS itself) differs
+between the before and after runs. The instrumented `[Lango][perf]` logs from the
+same runs additionally confirm the parts NOT expected to change didn't: message-
+passing round trips stayed at 9-46ms across both runs, consistent with item 32's
+original ~17ms measurement — the improvement is coming from where it should be
+(fewer/no wasted debounce resets), not from some other, unexplained source.
+
+**Real proof for the backend concurrency fix's mechanism, honestly scoped**: no
+live Postgres is reachable in this sandbox, and reproducing the exact real-world
+millisecond saving would require deploying this change to production, which the
+standing "do not push" instruction prohibits without explicit authorization — so
+that specific number is not fabricated here. What *is* real and measured: a new
+test (`routes::scan::tests::try_join_runs_independent_futures_concurrently_not_sequentially`)
+using simulated I/O delays (`tokio::time::sleep`) and `Instant::now()` proves, with
+real wall-clock measurement, that `tokio::try_join!` completes two independent
+50ms-delayed futures in ~50ms total, not the ~100ms two sequential `.await`s take —
+confirming the concurrency mechanism genuinely overlaps I/O rather than only
+looking like it does on paper. The magnitude of the real production saving equals
+one DB round trip's worth of latency on this deployment's actual network path,
+whatever that turns out to be once measured against a live instance — not
+independently verifiable in this session, stated plainly rather than guessed at.
+
+**Verification**: `cargo build` clean. `cargo test --lib`: **116 passed, 0
+failed** (up from 115 — the one new concurrency test — zero regressions in
+detection logic, the three-tier confidence system, fail-closed behavior, or the
+cross-tenant isolation tests, none of which this step touched). `cargo test
+--no-run`: all 8 integration test files still compile. `npm run build`: clean,
+TypeScript passes on the new `getToken()`/401-retry logic in `api-client.ts`.
+Response-scanner fix verified live as described above, not just by code review.

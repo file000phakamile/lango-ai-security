@@ -74,6 +74,22 @@ export interface DashboardData {
 
 class ApiError extends Error {}
 
+// Performance pass, Step 2/3: every call into this module used to call
+// login() fresh — a full server-side Argon2 password verification
+// (deliberately slow by design, ~0.6s even warm; see Questions.md's Step 1
+// report) — even though the returned JWT is valid for 12 hours
+// (backend/src/auth.rs SESSION_TTL_HOURS). That was wasteful before Step 5
+// added live polling to the dashboard; polling on top of the old
+// re-login-every-call behavior would have repeated that ~0.6s Argon2 cost
+// on every single poll tick, turning "live updates" into a self-inflicted
+// new latency and backend-load problem. Cached here instead, reused across
+// calls, and only re-fetched on a 401 or if nothing is cached yet. This is
+// a purely client-side change to how often the frontend *asks* for a
+// token — the backend's own JWT issuance, validation, and expiry
+// (`auth::decode_token`, `SESSION_TTL_HOURS`) are completely unchanged, and
+// still independently reject an expired/invalid token exactly as before.
+let cachedToken: string | null = null;
+
 async function login(): Promise<string> {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: "POST",
@@ -87,10 +103,30 @@ async function login(): Promise<string> {
   return data.token as string;
 }
 
+async function getToken(): Promise<string> {
+  if (cachedToken) return cachedToken;
+  cachedToken = await login();
+  return cachedToken;
+}
+
 async function authedGet<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (res.status === 401) {
+    // Cached token expired or was otherwise rejected — clear it and retry
+    // once with a fresh login, rather than surfacing a confusing failure
+    // for what's really just a stale cache entry.
+    cachedToken = null;
+    const freshToken = await getToken();
+    const retryRes = await fetch(`${API_BASE}${path}`, {
+      headers: { Authorization: `Bearer ${freshToken}` },
+    });
+    if (!retryRes.ok) {
+      throw new ApiError(`${path} failed: HTTP ${retryRes.status}`);
+    }
+    return retryRes.json() as Promise<T>;
+  }
   if (!res.ok) {
     throw new ApiError(`${path} failed: HTTP ${res.status}`);
   }
@@ -164,7 +200,7 @@ interface CommandCenterSummaryResponse {
 }
 
 async function loadLiveDashboardData(): Promise<DashboardData> {
-  const token = await login();
+  const token = await getToken();
 
   const [auditPage, fairness, drift, security, summary, healthSummaryResponse] = await Promise.all([
     authedGet<AuditLogPageResponse>("/api/audit-log?page_size=100", token),
@@ -267,18 +303,17 @@ export async function loadDashboardData(): Promise<DashboardData> {
 export { DEPARTMENTS };
 
 // ---------------------------------------------------------------------------
-// Policy builder (product-depth task, Part 1) — mutating calls, so each one
-// re-authenticates via `login()` rather than reusing a token cached from the
-// dashboard's initial read-only load. This module has never persisted a
-// token across calls (see `login()`'s own doc comment: the whole dashboard
-// authenticates transparently as a fixed demo account, a v0.1 shortcut, not
-// a production pattern) — one extra round trip per mutating action is a
-// small price for not introducing token-caching/refresh logic just for this
-// feature. Live-only, deliberately: unlike the read-only views above, there
-// is no mock-data fallback for policy settings, since fabricating a
-// threshold value or a list of custom patterns that don't actually exist
-// anywhere would be actively misleading for a feature whose entire point is
-// "this number is what really controls live scans" (see PolicyBuilder.tsx).
+// Policy builder (product-depth task, Part 1) — mutating calls. These used
+// to re-authenticate via a fresh `login()` on every single call, deliberately
+// accepting the extra round trip to avoid adding token-caching logic just
+// for this feature; performance pass Step 3 added that caching anyway (see
+// `getToken()` above, needed for Step 5's live polling), so these now reuse
+// it too rather than being the one path left paying the old cost. Live-only,
+// deliberately: unlike the read-only views above, there is no mock-data
+// fallback for policy settings, since fabricating a threshold value or a
+// list of custom patterns that don't actually exist anywhere would be
+// actively misleading for a feature whose entire point is "this number is
+// what really controls live scans" (see PolicyBuilder.tsx).
 // ---------------------------------------------------------------------------
 
 interface PolicySettingsResponse {
@@ -312,12 +347,24 @@ function toPolicySettings(r: PolicySettingsResponse): PolicySettings {
 }
 
 async function authedRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
-  const token = await login();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const token = await getToken();
+  let res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (res.status === 401) {
+    // Same stale-cache retry as authedGet() above — safe here too: a 401
+    // means the request was rejected before any mutation happened, so
+    // retrying once with a fresh token can't cause a double-effect.
+    cachedToken = null;
+    const freshToken = await getToken();
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${freshToken}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
   if (!res.ok) {
     // Surface the backend's own message (e.g. the exact safe-bounds
     // rejection text) rather than a generic "request failed" — the policy
@@ -375,7 +422,7 @@ export async function downloadComplianceExport(
   end: string,
   format: "csv" | "pdf",
 ): Promise<void> {
-  const token = await login();
+  const token = await getToken();
   const res = await fetch(
     `${API_BASE}/api/compliance-export?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&format=${format}`,
     { headers: { Authorization: `Bearer ${token}` } },
@@ -416,7 +463,7 @@ export async function recordReviewDecision(
 }
 
 export async function downloadLabelledDataset(format: "csv" | "jsonl"): Promise<void> {
-  const token = await login();
+  const token = await getToken();
   const res = await fetch(`${API_BASE}/api/labelled-dataset?format=${format}`, {
     headers: { Authorization: `Bearer ${token}` },
   });

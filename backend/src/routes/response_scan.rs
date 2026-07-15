@@ -39,8 +39,14 @@ pub async fn scan_response_handler(
         ));
     }
 
-    check_consent(&state.db, claims.sub).await?;
-
+    // Performance pass, Step 2/3: the consent check and the ownership
+    // lookup below are independent (different tables, neither result
+    // depends on the other) — fired concurrently rather than sequentially,
+    // same reasoning as routes/scan.rs. `load_scan_config` deliberately
+    // stays sequential, AFTER the ownership check below, not joined in here
+    // — if ownership fails, this request should fail fast without spending
+    // a third round trip loading a policy config it will never use.
+    //
     // Ownership check: the audit_log row must belong to THIS caller, in
     // THIS organisation — a real query-level boundary, not just a role
     // check, so one user can never attach response text to another user's
@@ -48,14 +54,23 @@ pub async fn scan_response_handler(
     // else's compliance record) — same "org, optionally department, real
     // WHERE clause" discipline as every other multi-tenant query in this
     // codebase.
-    let target: Option<TargetRow> = sqlx::query_as(
-        "SELECT decision, response_scanned_at FROM audit_log WHERE id = $1 AND user_id = $2 AND organisation_id = $3",
-    )
-    .bind(payload.audit_log_id)
-    .bind(claims.sub)
-    .bind(claims.organisation_id)
-    .fetch_optional(&state.db)
-    .await?;
+    // `try_join!` requires every future to share one error type; wrapped in
+    // an async block so this query's `sqlx::Error` maps to `AppError` the
+    // same way the `?` operator already does everywhere else in this file,
+    // rather than the two futures disagreeing on error type.
+    let ownership_fut = async {
+        sqlx::query_as::<_, TargetRow>(
+            "SELECT decision, response_scanned_at FROM audit_log WHERE id = $1 AND user_id = $2 AND organisation_id = $3",
+        )
+        .bind(payload.audit_log_id)
+        .bind(claims.sub)
+        .bind(claims.organisation_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::from)
+    };
+
+    let (_, target) = tokio::try_join!(check_consent(&state.db, claims.sub), ownership_fut)?;
 
     let target = target.ok_or_else(|| {
         AppError::NotFound("Audit log row not found for this user in this organisation.".to_string())
