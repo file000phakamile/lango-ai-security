@@ -253,6 +253,33 @@ exercised in this specific test); and the real backend's detection engine in thi
 exact integration context (covered separately by `cargo test`, not by this
 browser session).
 
+**Independently re-verified in a later session (docs-accuracy task), specifically
+because a claim this significant deserved re-confirming rather than being taken on
+faith from a prior summary.** Reran the exact same method
+(`chromium.launchPersistentContext` + `--load-extension`) against a real, live
+`gemini.google.com` session, right down to the same fake-JWT-injection technique —
+it reproduced cleanly, on a freshly created browser profile, with no changes to the
+extension code since the original verification. A real prompt was sent, intercepted,
+and resent; a real Gemini reply streamed in; the response scanner correctly
+extracted it and called the (mock) `/api/scan/response` with the right correlated
+`audit_log_id`; and, this time specifically testing the `flagged: true` case (the
+original verification's surviving artifacts only clearly proved `flagged: false`
+end-to-end), the real warning banner rendered in the real page, screenshotted.
+
+One honest new finding from this re-run: **the first re-verification attempt used a
+10-second wait after pressing Enter and did not see the banner in time** — the mock
+backend's own request log confirmed `/api/scan/response` was never even called
+within that window. A second attempt with a longer wait (~13-15 seconds total from
+send to banner) succeeded reliably, twice. The gap isn't a bug in the 4000ms
+`DEBOUNCE_MS` constant itself — it's that the *full* round trip (Gemini's own
+response latency + DOM settling + the debounce + a real network fetch to
+`/api/scan/response` + banner render) is longer than the debounce value alone
+suggests, and can vary with real network conditions. This is a genuine, observed
+reliability characteristic, not a hypothetical one: a very fast reader could
+plausibly finish reading a short response before the banner appears, especially on
+a slow connection. Worth stating here rather than only in the debounce constant's
+own comment.
+
 ### chatgpt.com — prompt side verified (earlier work), response side not
 
 **Verified, directly, against the live production backend** (not simulated): the

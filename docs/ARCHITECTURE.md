@@ -124,7 +124,13 @@ composer and response-turn selectors, the correlation between a prompt scan and
 its response, and the full round trip through a mocked backend (no live Postgres
 was reachable in this sandbox to run the real one — see Questions.md) were all
 directly observed working, including the correct silent behavior for a clean
-response and the correct warning banner for a flagged one. chatgpt.com's and
+response and the correct warning banner for a flagged one. **Independently
+re-verified in a later session** (docs-accuracy pass) using the same method on a
+fresh browser profile — reproduced cleanly, including the flagged-banner case
+specifically, plus one new honest finding: the full round trip (real reply
+latency + debounce + fetch + render) took closer to 13-15 seconds end to end in
+practice, not just the 4000ms debounce constant alone — see `extension/README.md`'s
+gemini.google.com section and Questions.md for the actual observed output. chatgpt.com's and
 claude.ai's response-turn selectors remain unverified best-effort guesses (both
 sites are unreachable from this project's development environment for a full,
 authenticated session) — see `content/chatgpt-adapter.js` and

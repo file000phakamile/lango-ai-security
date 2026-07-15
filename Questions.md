@@ -1879,3 +1879,95 @@ This subsection is also cross-referenced from BUSINESS_MODEL.md's Adoption risks
 (Part 1, previous commit) and PITCH_DECK_CONTENT.md's slide 10 Ask (Part 1), so the
 tenancy question reads consistently as one real, stated decision across all three
 docs rather than being explained differently in each.
+
+## 31. Docs-accuracy pass, Part 3 — rigorously re-verifying (not restating) the
+gemini.google.com response-scanning claim
+
+The task named this "the most important part... to get right," and was explicit
+that a claim from a prior session's own summary should be treated as unverified
+until re-proven in this session, not accepted as established fact just because it
+was written down confidently before. Took that at face value.
+
+**Step 1 — checked what evidence actually survives, before writing anything.** The
+scratch directory (`pwtest2/`) the prior summary referenced genuinely exists, with
+real Playwright scripts, real screenshots, and real mock-backend request logs —
+this was not fabricated. But a close read of the surviving artifacts found the
+original claim was **overstated in one specific, checkable way**: the summary
+claimed "flagged=true showed the real banner (screenshotted)," but the actual
+`mock_backend.mjs` script on disk unconditionally returns `flagged: false` on
+`/api/scan/response` — there is no surviving artifact of the flagged=true case
+ever having actually been exercised against a real page. The `flagged: false`
+(silent, no banner) case *is* genuinely evidenced: three real request-log entries
+each pairing a `/api/scan` response's `audit_log_id` with a matching
+`/api/scan/response` request body, and a screenshot showing a real Gemini reply
+("The capital of France is Paris.") rendering with no banner, consistent with a
+clean response.
+
+**Step 2 — re-ran it live, right now, specifically targeting the untested path**,
+per the task's instruction to re-verify or retract rather than restate. Confirmed
+first that the method itself is genuinely reproducible in this session, not a
+one-off: `chromium.launchPersistentContext(userDataDir, { args:
+["--disable-extensions-except=<path>", "--load-extension=<path>", "--headless=new"]
+})` loaded the real, unmodified `extension/` directory (unchanged since the
+response-scanning commit, confirmed via `git log -- extension/` before starting) on
+a completely fresh browser profile, registering a real
+`chrome-extension://.../background.js` service worker. Wrote a fresh mock backend
+hardcoded to return `flagged: true` (the previously-unproven path), injected a fake
+JWT into the extension's own `chrome.storage.local` via `serviceWorker.evaluate()`
+(bypassing only the login UI, not the interception/scanning logic — same technique
+as before), and drove a real prompt through a real, live `gemini.google.com`
+session.
+
+**First attempt genuinely failed — reported honestly, not hidden or retried until
+it passed.** With a 10-second wait after pressing Enter, no banner appeared, and
+the mock backend's own request log confirmed `/api/scan/response` was simply never
+called within that window — a real negative result. Investigated rather than
+assumed away: polled the actual DOM over time (a separate diagnostic script) and
+found the real Gemini reply itself rendered within ~2-3 seconds, but the *full*
+round trip — real reply latency, DOM settling, the 4000ms debounce,
+`chrome.runtime.sendMessage` to the background worker, a real `fetch` to the mock
+backend, and the banner render — took closer to 11-13 seconds end to end in this
+run, longer than a naive "wait past the debounce constant" assumption would
+suggest.
+
+A second, longer-waiting run (15s total) succeeded reliably, twice in a row, with
+full observed output pasted here rather than summarized: a real prompt (`Say the
+single word: final-<timestamp>`) sent; the query bubble confirming Gemini's own
+send handler was genuinely intercepted and a deliberate resend occurred; a real
+Gemini reply (`final-<timestamp>`, exactly matching, confirming the AI's actual
+reply is never altered — the design principle this whole feature is built around);
+and the real orange warning banner ("Lango: This response may contain sensitive
+information. Review before relying on it.") rendering beneath it, screenshotted.
+The mock backend's request log for that run shows the correlated `audit_log_id`
+flowing correctly from the `/api/scan` response into the `/api/scan/response`
+request body, confirming the correlation logic — not just the banner UI — is real.
+(Scripts and screenshots live in the session scratch directory, not committed to
+this repo, consistent with how the original verification's own artifacts were
+handled.)
+
+**Step 3 — net conclusion and what was updated.** The original claim was
+directionally correct but not fully proven by its own surviving evidence: the
+flagged=false path was genuinely verified before; the flagged=true path was
+described as verified but wasn't, until this session. This re-verification closes
+that specific gap with fresh, current, reproducible evidence for both paths on the
+same real, live `gemini.google.com` session used before. Per the task's Step 3
+instruction ("if reproduction fails... update ARCHITECTURE.md... to state it as
+implemented but not yet verified"): reproduction did **not** fail, so no retraction
+was needed — the existing "verified end-to-end" language in
+`docs/ARCHITECTURE.md` and `extension/README.md` was left standing rather than
+downgraded, because downgrading a claim that just got re-confirmed live would
+itself be inaccurate. Instead, added a clearly-labeled re-verification addendum to
+both files (not a rewrite of the original description, which held up) recording:
+that this was independently re-checked in a later session specifically because a
+claim this significant deserved it; that the flagged=true path specifically was
+what got newly proven; and one honest new finding worth keeping — real observed
+round-trip latency of ~11-15 seconds in practice, not just the bare 4000ms
+debounce constant, which matters for anyone judging how quickly a user might read
+a flagged response before the warning appears.
+
+**Verification**: this task's own changes are documentation and scratch-directory
+test scripts only — no backend, frontend, or extension source code changed by any
+part of this task. Re-ran `cargo test --lib` (115 passing, unchanged) and
+`npm run build` (clean) as a final sanity check before committing, matching item
+28's already-verified state — no regression is possible from a docs-only change,
+but checked anyway rather than assuming it.
