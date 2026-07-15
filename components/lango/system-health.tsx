@@ -64,7 +64,7 @@ export function SystemHealth({ source }: { source: "live" | "mock" }) {
     <div className="space-y-4">
       <Panel
         title="System Health"
-        sub="Recent backend errors (5xx responses only) - an internal fallback for third-party error tracking, since that needs an account only the deployment operator can provision"
+        sub="Recent backend errors, so a problem can be spotted before a user reports it"
         right={
           <button
             type="button"
@@ -78,7 +78,7 @@ export function SystemHealth({ source }: { source: "live" | "mock" }) {
       >
         {loadError && (
           <p className="text-xs text-[#A83A3A] bg-[#A83A3A1A] border border-[#A83A3A55] rounded px-3 py-2 mb-3">
-            Could not load backend errors: {loadError}
+            Could not load recent backend errors right now. Try refreshing in a moment.
           </p>
         )}
         {!errors && !loadError && (
@@ -120,9 +120,7 @@ export function SystemHealth({ source }: { source: "live" | "mock" }) {
           </div>
         )}
         <p className="text-xs text-[#8A93A1] mt-4 leading-relaxed">
-          Shows the 100 most recent 5xx responses across this deployment, not just this
-          organisation — a known v1 scope limitation for a single/few-tenant pilot, stated
-          explicitly in <code className="font-mono">backend/src/routes/backend_errors.rs</code>.
+          Shows the 100 most recent errors across the whole deployment.
         </p>
       </Panel>
     </div>

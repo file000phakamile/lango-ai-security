@@ -2722,3 +2722,37 @@ grep-only conclusion.
 **Verification so far**: `node --check` on both edited `.js` files (clean).
 `npm run build` clean. Full-browser visual confirmation of the popup deferred to
 the dedicated Verification pass at the end, per the task's own structure.
+
+## 40. UI copy pass, Part 4 — System Health panel cleanup
+
+Replaced the panel `sub` ("Recent backend errors (5xx responses only) - an
+internal fallback for third-party error tracking, since that needs an account
+only the deployment operator can provision") with "Recent backend errors, so a
+problem can be spotted before a user reports it" — what the panel shows, not why
+Sentry wasn't wired in. Replaced the footer paragraph (the literal
+`backend/src/routes/backend_errors.rs` path plus "a known v1 scope limitation for
+a single/few-tenant pilot" phrasing) with a single plain sentence: "Shows the 100
+most recent errors across the whole deployment."
+
+**Where the full reasoning went**: checked `backend/src/routes/backend_errors.rs`
+before moving anything — the complete technical explanation (why this endpoint is
+deliberately not organisation-scoped, what that means today, what a real fix
+would require) already exists there as the file's own header doc comment, put
+there when this endpoint was first built. Nothing needed to move; the panel text
+was a second, redundant copy of the same reasoning in the wrong place, not the
+only copy. `HOW_TO_USE.md`/`help.tsx`'s System Health line ("a simple list of
+recent backend errors, so an operator can spot a problem without a separate
+monitoring tool") covers what a user actually needs to know without repeating
+either the code-comment detail or the removed panel paragraph.
+
+**The raw-fetch-error state**: `Could not load backend errors: {loadError}`
+(which would render literally as "Could not load backend errors: Failed to
+fetch") replaced with "Could not load recent backend errors right now. Try
+refreshing in a moment." — the raw JS error string is dropped entirely rather
+than partially kept, matching this codebase's existing pattern of hiding raw
+technical detail from the person looking at a banner while keeping it available
+elsewhere (the `blocked_low_confidence` prompt banner does the same thing,
+showing `user_message` and never `reason_string` to the person who typed the
+prompt).
+
+**Verification**: `npm run build` clean.
