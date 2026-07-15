@@ -2391,3 +2391,82 @@ cross-tenant isolation tests, none of which this step touched). `cargo test
 --no-run`: all 8 integration test files still compile. `npm run build`: clean,
 TypeScript passes on the new `getToken()`/401-retry logic in `api-client.ts`.
 Response-scanner fix verified live as described above, not just by code review.
+
+## 35. Performance/design pass, Step 4 — design direction plan and the one real
+judgment call it named explicitly
+
+The task supplied real design research directly rather than asking for it to be
+sourced — this item turns that into a concrete plan for Step 5, and makes the one
+decision the task explicitly left open.
+
+**Dashboard**: the given direction (role-based visible differentiation,
+color-paired-with-icon/text status, a visible exportable audit trail, live/near-live
+updates) is largely already true of this dashboard today — role-based nav exists
+(`staff`/`department_reviewer`/`compliance_admin`), every decision badge already
+pairs a color with an icon and a text label (`decision-badge.tsx`), and a real,
+exportable audit trail already exists (Compliance Export, Labelled Dataset). What's
+missing, exactly as the direction names: live/near-live updates (currently
+load-once, manual-refresh-only), motion (view switches and KPI numbers currently
+appear instantly, no transition), and a real skeleton loading state (currently a
+single "Loading Lango dashboard…" text line for the whole app, not per-view).
+Plan: add polling to `CommandCenter` and `AuditLog` specifically (as directed, not
+every view — the other views' data changes far less often and don't need it);
+reuse the just-added `getToken()` caching from Step 3 so polling doesn't multiply
+login cost; a short transition on sidebar view switches; a count-up animation for
+the four KPI tiles on load; a real skeleton (matching each view's actual layout,
+not a generic spinner) for the initial load and for polling-triggered refreshes
+that are still in flight. Color system, typography, and information architecture
+untouched, per the task's explicit instruction.
+
+**Extension banner system**: implement the staged timing model exactly as
+specified — nothing/minimal under ~1s, a calm indeterminate indicator from ~1s to a
+few seconds, and honest rotating status phrases past that (specifically relevant to
+response scanning, now measured at ~8-9s even after Step 3's fix — still solidly in
+"past a few seconds" territory). Single-banner invariant (already true today —
+`showBanner()` already removes any existing banner before adding a new one, see
+`content/ui-banner.js` — kept, not re-implemented). Add an ARIA live region
+(`role="status"`/`aria-live="polite"` for informational banners, `aria-live="assertive"`
+for a blocked/failed outcome, since that's the case where a screen-reader user
+most needs to be interrupted rather than politely queued) — genuinely new, this
+extension has had zero accessibility treatment for its banner system until now, as
+the task states plainly. Respect `prefers-reduced-motion` by keeping the state
+change (banner text/color updates) but dropping animated transitions/spinners in
+favor of an instant, static equivalent — never removing the indicator entirely,
+per the task's explicit instruction, since a reduced-motion user still needs to
+know a scan is in progress, just without the motion itself.
+
+**In-page banner visual treatment — the one real judgment call this step asks
+for, decided here rather than deferred**: the direction floats a host-page-adaptive
+backdrop-blur/shadow treatment "only if it does not add meaningful complexity or
+fragility to the existing DOM interception work," with an explicit instruction to
+default to the current simpler approach if it would. Decision: **add a CSS-only
+`backdrop-filter: blur(...)` plus a softened box-shadow, and stop there —
+explicitly reject going further into per-site theme/color detection.** Reasoning:
+a pure `backdrop-filter` treatment inherently adapts to whatever's visually behind
+the banner on any given site, automatically, without Lango's code ever reading,
+sampling, or depending on that site's own DOM, theme, or color scheme — it's a
+one-line CSS property added to `ui-banner.js`'s existing inline style object,
+touching zero site-adapter files and zero interception logic, so it carries
+essentially none of the fragility risk a real per-site adaptation would. A fuller
+"read the host page's actual background/theme and match it" treatment was
+considered and explicitly rejected: five different sites (chatgpt.com, claude.ai,
+gemini.google.com, chat.deepseek.com, copilot.microsoft.com) almost certainly
+expose their own theming differently (some via `prefers-color-scheme`, some via a
+page-level dark-mode class, some via CSS custom properties this extension has no
+visibility into) — reliably detecting and matching all five would mean real,
+ongoing, per-site maintenance burden on top of the DOM-selector fragility this
+project already documents honestly for prompt/response interception, for a purely
+cosmetic gain. The blur/shadow treatment is judged worth doing; the deeper
+adaptation is judged not worth its fragility cost — exactly the tradeoff the task
+asked to be stated explicitly if declined, not silently skipped.
+
+**Icon language**: the extension's banners currently have no icon at all, only a
+colored background and text — there wasn't an existing "icon language" in the
+extension to preserve, only the dashboard's (`decision-badge.tsx`: every status
+pairs a color with a `lucide-react` icon and a text label, never color alone).
+Plan: extend that same grammar into the extension banners with small inline SVGs
+(no external asset loading, so no new fragility or manifest permission needed)
+matching each existing banner color/kind — this is what "the same icon and color
+language" means in practice here: applying the dashboard's already-established
+principle to the one surface that didn't have it yet, not preserving something
+that already existed in the extension.
