@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Activity, AlertTriangle, Circle, FileDown, FileText, HeartPulse, KeyRound, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
+import { Activity, AlertTriangle, Circle, FileDown, FileText, HeartPulse, HelpCircle, KeyRound, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
 import { Badge, DashboardSkeleton } from "./atoms";
 import { CommandCenter } from "./command-center";
 import { AuditLog } from "./audit-log";
@@ -12,6 +12,7 @@ import { HealthDataGuard } from "./health-data-guard";
 import { PolicyBuilder } from "./policy-builder";
 import { ComplianceExport } from "./compliance-export";
 import { SystemHealth } from "./system-health";
+import { Help } from "./help";
 import { loadDashboardData, type DashboardData } from "@/lib/lango/api-client";
 import type { NavItem } from "@/lib/lango/types";
 
@@ -34,10 +35,26 @@ const NAV: NavItem[] = [
   // "system-health", not "health" - that key is already used by "Health
   // Data Guard" above.
   { key: "system-health", label: "System Health", Icon: Activity },
+  // Tenth view, added by the UI copy pass (Part 2) — a real in-app help
+  // page, not a link out to a file the reader would have to leave the
+  // product to open. Visible to everyone who can see the dashboard at all,
+  // same as every view above — this dashboard has no per-role frontend
+  // gating today (see Questions.md).
+  { key: "help", label: "Help", Icon: HelpCircle },
 ];
 
 export function LangoDashboard() {
-  const [view, setView] = useState("command");
+  // UI copy pass, Part 2: reads the URL hash once on mount so the extension
+  // popup (and anyone else) can deep-link straight to a specific view —
+  // `#help` specifically, so "how do I use this" lands on the Help tab
+  // itself rather than the default Command Center. Read once, not kept in
+  // sync on every hash change afterward — this is a landing shortcut, not a
+  // router; sidebar clicks still just update local state as before.
+  const [view, setView] = useState(() => {
+    if (typeof window === "undefined") return "command";
+    const fromHash = window.location.hash.slice(1);
+    return NAV.some((n) => n.key === fromHash) ? fromHash : "command";
+  });
   const [data, setData] = useState<DashboardData | null>(null);
   // Mobile sidebar drawer state — irrelevant above the `md` breakpoint,
   // where the sidebar is always visible and this toggle/backdrop never
@@ -227,6 +244,7 @@ export function LangoDashboard() {
           {view === "policy" && <PolicyBuilder source={data.source} />}
           {view === "export" && <ComplianceExport source={data.source} />}
           {view === "system-health" && <SystemHealth source={data.source} />}
+          {view === "help" && <Help />}
         </div>
       </main>
     </div>

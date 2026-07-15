@@ -2622,3 +2622,60 @@ specifically for any remaining "Gemini: unverified" claim after forming this
 judgment call and found none — those files were already accurate on this point
 before this task started, which is itself worth noting: the stale claim was
 narrower in scope (one popup, two files) than the task's framing implied.
+
+## 38. UI copy pass, Part 2 — one canonical help surface, and the judgment calls
+building it required
+
+Built `HOW_TO_USE.md` (project root) and `components/lango/help.tsx` (dashboard's
+new Help tab), consolidating `extension/USER_GUIDE.md` and `docs/UX_DESIGN.md`
+rather than writing from scratch, per the task's instruction.
+
+**Judgment call: two files, kept consistent by hand, not by a single generated
+source.** `HOW_TO_USE.md` is real Markdown; `help.tsx` is real JSX matching the
+dashboard's existing `Panel`/color/typography conventions — no markdown-rendering
+library exists in this project's frontend dependencies today, and adding one
+(react-markdown or similar) purely to avoid maintaining two files with the same
+content twice was judged disproportionate for a single help page, especially
+given this project's consistent "don't add machinery you don't need" pattern
+elsewhere (e.g. no client-side router was added for the dashboard's existing
+single-page view-switching). Both files were written from the same outline, same
+headings, same facts, same order — kept genuinely consistent by construction of
+this pass, not merely asserted to be. Future edits to one will need the same
+discipline; `help.tsx`'s own header comment states this plainly, including where
+this decision is recorded.
+
+**Judgment call: the Help tab is visible to every role, not gated.** The task
+asked for a decision on this. This dashboard has no per-role frontend gating on
+any of its other nine views today — every view renders regardless of the
+demo-account's role, because the frontend authenticates transparently as one
+fixed seeded account rather than having a real per-role login screen (documented
+honestly elsewhere in this project, not new information). Adding role-gating to
+just the Help tab specifically, when nothing else in the dashboard has any, would
+be new, asymmetric machinery solving a problem that doesn't actually exist in the
+current build — so Help stays visible to everyone who can see the dashboard at
+all, consistent with every other view.
+
+**Judgment call: what "does not assume dashboard access" means for the extension
+popup, addressed here architecturally, implemented in Part 3.** The real,
+intended access model (per `docs/ARCHITECTURE.md`'s role definitions) has `staff`
+with no dashboard access at all — even though today's actual deployed frontend
+doesn't enforce that (anyone who navigates to the Vercel URL sees the full
+dashboard, since there's no real login gate yet). Rather than wait for that gap
+to close, the extension popup — which DOES know the real logged-in user's role,
+from the JWT-backed user object returned at login — will link a `staff`-role user
+to a public, unauthenticated destination instead of the dashboard: this
+repository's GitHub-hosted `HOW_TO_USE.md`
+(`https://github.com/file000phakamile/lango-ai-security/blob/main/HOW_TO_USE.md`),
+confirmed via `git remote -v` to be this project's real, actual remote. This
+assumes the repository is public (consistent with it being a judge-facing AI4I
+2026 submission with an already-public deployed dashboard) — not independently
+re-confirmed via a live fetch in this pass, stated as an assumption rather than a
+verified fact. `compliance_admin`/`department_reviewer` users, who DO have real
+dashboard access, get a direct deep link to the dashboard's Help tab instead
+(`https://lango-app-dusky.vercel.app/#help`) — see the hash-based initial-view
+read added to `lango-dashboard.tsx` for how that resolves on load.
+
+**Verification**: `npm run build` — caught one real, useful compile error along
+the way (`lucide-react` has no `Chrome` icon export in this version; swapped for
+`BookOpen`, which exists) before it could ship, not after. Clean build after the
+fix.
