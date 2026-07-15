@@ -2679,3 +2679,46 @@ read added to `lango-dashboard.tsx` for how that resolves on load.
 the way (`lucide-react` has no `Chrome` icon export in this version; swapped for
 `BookOpen`, which exists) before it could ship, not after. Clean build after the
 fix.
+
+## 39. UI copy pass, Part 3 — popup simplification, verification status, and
+the markdown-link bug that wasn't there
+
+**Popup footer note**: replaced the file-path note ("v0.1 — see extension/USER_GUIDE.md...")
+with one short line and a real `<a href="...HOW_TO_USE.md" target="_blank">`
+link, role-aware (see item 38's link-routing reasoning) rather than a single
+fixed destination.
+
+**Verification status**: `popup.html`'s "Active on" line and `popup.js`'s
+`SUPPORTED_SITES` array (the popup's own internal tracking, distinct from the
+display string, as the task asked about explicitly) both now mark
+gemini.google.com verified — real and independently established. Claude stays
+`verified: false` — see item 37. The per-tab status string's "— see USER_GUIDE.md"
+file reference is also removed, replaced with "test before relying on it."
+`options.html`'s intro paragraph and footer note (the block flagged in item 37's
+audit — `chrome.storage.local` named directly, `cargo run`-adjacent local-dev
+instructions, three separate file-path references) are replaced with plain text
+and one real link to the same help surface. `extension/USER_GUIDE.md`'s own
+description of the popup's "Active on" line (line 100) is updated to match, since
+it would otherwise go stale the moment the popup changed.
+`content/claude-adapter.js`'s header comment is updated too, per the task's
+explicit instruction to update both adapter headers — but records the fresh
+re-verification attempt and its real (still-blocked) result, not a false
+"verified" claim; `content/gemini-adapter.js`'s header was checked and found
+already accurate (it already correctly describes composer/response as verified
+and send-button/logged-in-session as not), so it was left untouched rather than
+edited for the sake of matching the instruction's letter when there was nothing
+actually wrong to fix.
+
+**The markdown-link bug**: this task's Part 3 also asked to fix a literal
+`[Open live dashboard](url)` string rendering as plain text. As documented in
+item 37/`docs/UI_COPY_AUDIT.md`, this was investigated exhaustively (a project-
+wide grep for markdown link/bold syntax outside `.md` files and code comments,
+plus a literal case-insensitive search for the phrase itself) and not found —
+`popup.html`'s dashboard link was already a real `<a>` element before this task
+started. No fix was needed or made; re-confirmed visually in a real browser
+during Verification (see the Verification-section commit) rather than left as a
+grep-only conclusion.
+
+**Verification so far**: `node --check` on both edited `.js` files (clean).
+`npm run build` clean. Full-browser visual confirmation of the popup deferred to
+the dedicated Verification pass at the end, per the task's own structure.

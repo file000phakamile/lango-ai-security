@@ -2,16 +2,33 @@ const DEFAULT_API_BASE_URL = "https://lango-backend-qwkx.onrender.com";
 
 // Kept in sync with manifest.json's content_scripts matches by hand — only
 // five entries, so a build step to derive this list felt like more
-// machinery than the situation warrants. `verified` must stay honest: only
-// chatgpt.com has actually been driven against a live, logged-in browser
-// session (see extension/USER_GUIDE.md's caveats and Questions.md).
+// machinery than the situation warrants. `verified` must stay honest:
+// chatgpt.com's prompt-side interception and gemini.google.com (both prompt
+// and response scanning) have actually been driven against a live session —
+// see Questions.md items 26/31/34. claude.ai was re-checked live in the
+// UI-copy pass (a real fetch and a real headless-browser navigation both
+// still return a 403/Cloudflare block, unchanged from every earlier
+// attempt) and stays unverified — see Questions.md item 37 for why this
+// stays false even though it was instructed to be marked verified.
 const SUPPORTED_SITES = [
   { host: "chatgpt.com", label: "ChatGPT", verified: true },
   { host: "claude.ai", label: "Claude", verified: false },
-  { host: "gemini.google.com", label: "Gemini", verified: false },
+  { host: "gemini.google.com", label: "Gemini", verified: true },
   { host: "chat.deepseek.com", label: "DeepSeek", verified: false },
   { host: "copilot.microsoft.com", label: "Copilot", verified: false },
 ];
+
+// UI copy pass, Part 3: a staff-role user has no dashboard access in the
+// real, intended access model (see docs/ARCHITECTURE.md's role
+// definitions), even though today's actual deployed frontend doesn't
+// enforce that yet (see Questions.md item 38) — so this link must not
+// assume dashboard access every logged-in user actually has. Defaults to
+// the public, unauthenticated GitHub-hosted copy (safe before login too,
+// when the role isn't known yet); only switches to the dashboard's own
+// Help tab for a role that genuinely has dashboard access.
+const PUBLIC_HELP_URL = "https://github.com/file000phakamile/lango-ai-security/blob/main/HOW_TO_USE.md";
+const DASHBOARD_HELP_URL = "https://lango-app-dusky.vercel.app/#help";
+const DASHBOARD_ROLES = ["compliance_admin", "department_reviewer"];
 
 const tabStatusEl = document.getElementById("tabStatus");
 const statusDot = document.getElementById("statusDot");
@@ -25,6 +42,7 @@ const scanCountEl = document.getElementById("scanCount");
 const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
 const loginMessage = document.getElementById("loginMessage");
+const helpLink = document.getElementById("helpLink");
 
 // Reports on the CURRENT tab specifically — distinct from the static
 // "Active on: ..." site list above, which just states what this extension
@@ -60,7 +78,7 @@ function refreshTabStatus() {
       if (injected) {
         tabStatusEl.textContent = match.verified
           ? `Active on this tab: ${match.label} (verified)`
-          : `Active on this tab: ${match.label} (unverified adapter — see USER_GUIDE.md)`;
+          : `Active on this tab: ${match.label} (unverified adapter — test before relying on it)`;
       } else {
         tabStatusEl.textContent = `${match.label} detected, but Lango isn't responding on this tab yet — try reloading the page.`;
       }
@@ -80,6 +98,11 @@ function render(status) {
   }
 
   scanCountEl.textContent = status.scanCount;
+
+  // UI copy pass, Part 3: point a staff-role user at the public help copy,
+  // not the dashboard — see the constants' own comment above for why.
+  const role = status.user && status.user.role;
+  helpLink.href = role && DASHBOARD_ROLES.includes(role) ? DASHBOARD_HELP_URL : PUBLIC_HELP_URL;
 
   if (status.loggedIn && status.requiresConsent) {
     // Logged in, but this user has never accepted (or needs to re-accept)

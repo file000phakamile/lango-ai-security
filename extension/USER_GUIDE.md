@@ -96,8 +96,8 @@ the width of a large phone screen.
 to bottom:
 
 - A status line with a red dot and the text "Not logged in".
-- A short line listing which sites the extension is active on (ChatGPT marked
-  verified; the other four marked unverified).
+- A short line listing which sites the extension is active on (ChatGPT and
+  Gemini marked verified; the other three marked unverified).
 - A red-tinted banner: "You're not logged in — log in below to enable prompt scanning
   on supported sites."
 - An **Email** field and a **Password** field, right there in the popup — you do not

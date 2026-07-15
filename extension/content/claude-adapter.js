@@ -23,6 +23,15 @@
 // browser path didn't — see Questions.md for the exact results). There is
 // still no way to verify anything in this file against real markup.
 //
+// Re-checked AGAIN during the UI copy pass, specifically because that task
+// instructed marking Claude as "now confirmed verified" — before doing
+// that, both checks above were repeated live: a raw fetch and a real
+// headless-browser navigation to claude.ai, in that session, right then.
+// Identical result: HTTP 403 both ways, same Cloudflare "Just a moment..."
+// interstitial. Nothing about this adapter's status changed; Claude is NOT
+// marked verified anywhere in this project despite that instruction — see
+// Questions.md item 37 for the full reasoning.
+//
 // RESPONSE SCANNING SPECIFICALLY (Part 1 of that task) IS LOWER CONFIDENCE
 // THAN THE COMPOSER SELECTORS ABOVE, stated plainly: unlike chatgpt.com's
 // `data-message-author-role` attribute (a widely and consistently

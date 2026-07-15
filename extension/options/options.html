@@ -26,6 +26,10 @@
         font-size: 13px;
         color: #5b6270;
       }
+      p.intro a,
+      .note a {
+        color: #8a6323;
+      }
       label {
         display: block;
         font-size: 12px;
@@ -90,8 +94,7 @@
     <h1><img src="../icons/icon48.png" alt="" /> Lango — AI Data Guard</h1>
     <p class="intro">
       Log in with your Lango account to enable prompt scanning on supported sites (ChatGPT, Claude, Gemini,
-      DeepSeek, Copilot — see <code>extension/USER_GUIDE.md</code> for which of these are actually verified
-      working versus implemented-but-unverified).
+      DeepSeek, Copilot — see <a href="https://github.com/file000phakamile/lango-ai-security/blob/main/HOW_TO_USE.md" target="_blank" rel="noopener">How to use Lango</a> for which of these are actually verified working).
     </p>
 
     <label for="apiBaseUrl">API base URL</label>
@@ -111,11 +114,9 @@
     <div id="message"></div>
 
     <p class="note">
-      v0.1. Your JWT is stored in <code>chrome.storage.local</code> for this browser profile
-      only — not synced to other devices. Default API base URL is the live Render backend; override it to
-      <code>http://localhost:8080</code> to test against a locally-run backend instead (see
-      <code>backend/README</code> / the main repo README's Setup section for running the backend locally). See
-      <code>extension/README.md</code> for full install and testing instructions.
+      Your login is stored on this device only, not synced to other browsers. Most people never
+      need to change the API base URL above — it's only for testing against a different backend.
+      <a href="https://github.com/file000phakamile/lango-ai-security/blob/main/HOW_TO_USE.md" target="_blank" rel="noopener">How to use Lango</a>
     </p>
 
     <script src="options.js"></script>
