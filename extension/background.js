@@ -41,6 +41,13 @@ async function scanPrompt(prompt) {
     return { ok: false, error: "not_authenticated", message: "Not logged in — open the Lango extension options." };
   }
 
+  // Real-latency instrumentation (performance pass, Step 1/3): timing the
+  // fetch() call in isolation, separate from message-passing overhead
+  // (measured on the content-script side — see site-adapter.js) and from
+  // chrome.storage.local.get() above (also cheap, but real — see
+  // getSettings() call site). console.debug so this is silent unless
+  // DevTools is open, matching this file's existing console.warn/info usage.
+  const fetchStart = performance.now();
   let res;
   try {
     res = await fetch(`${apiBaseUrl}/api/scan`, {
@@ -91,6 +98,7 @@ async function scanPrompt(prompt) {
   }
 
   const data = await res.json();
+  console.debug(`[Lango][perf] scanPrompt fetch (request send -> body parsed): ${Math.round(performance.now() - fetchStart)}ms`);
 
   // Counted here, not in the content script, so a page reload can't lose
   // the count and a retry that never reached the API can't inflate it.
@@ -110,6 +118,8 @@ async function scanResponse(auditLogId, responseText) {
     return { ok: false, error: "not_authenticated", message: "Not logged in." };
   }
 
+  // Same instrumentation as scanPrompt() above — see that function's comment.
+  const fetchStart = performance.now();
   let res;
   try {
     res = await fetch(`${apiBaseUrl}/api/scan/response`, {
@@ -136,6 +146,7 @@ async function scanResponse(auditLogId, responseText) {
   }
 
   const data = await res.json();
+  console.debug(`[Lango][perf] scanResponse fetch (request send -> body parsed): ${Math.round(performance.now() - fetchStart)}ms`);
   return { ok: true, data };
 }
 

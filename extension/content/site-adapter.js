@@ -117,6 +117,7 @@ const LangoSiteAdapter = (() => {
     e.stopPropagation();
     e.stopImmediatePropagation();
 
+    const scanStartedAt = performance.now();
     showBanner("Lango: scanning prompt…", "neutral", { autoDismiss: false });
 
     let response;
@@ -125,6 +126,15 @@ const LangoSiteAdapter = (() => {
     } catch (err) {
       response = null;
     }
+    // Real-latency instrumentation (performance pass, Step 1/3): the full
+    // round trip as this content script actually experiences it — dispatch,
+    // background-worker processing (message passing + chrome.storage read +
+    // the real fetch(), see background.js's own "scanPrompt fetch" log for
+    // that piece in isolation), and the response arriving back here. The gap
+    // between this number and background.js's own logged fetch duration is
+    // the real message-passing + background-side non-fetch overhead —
+    // exactly the breakdown Step 1 asked for, not an estimate.
+    console.debug(`[Lango][perf] prompt scan round trip (content script send -> response received): ${Math.round(performance.now() - scanStartedAt)}ms`);
 
     // Fail CLOSED, not open: chrome.runtime.sendMessage throwing (e.g. the
     // service worker was killed and failed to wake), or the background

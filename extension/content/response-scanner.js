@@ -75,6 +75,14 @@ const LangoResponseScanner = (() => {
     const text = (el.innerText != null ? el.innerText : el.textContent || "").trim();
     if (!text) return;
 
+    // Real-latency instrumentation (performance pass, Step 1/3): measures
+    // from the moment the debounce fires (the response was judged stable)
+    // to the moment a decision comes back — the piece of the total
+    // prompt-to-banner latency that's under the backend/network's control,
+    // as distinct from the debounce wait itself (a deliberate, separately
+    // reasoned client-side delay — see DEBOUNCE_MS's own comment above) and
+    // from however long the AI provider itself took to finish streaming.
+    const scanStartedAt = performance.now();
     let response;
     try {
       response = await chrome.runtime.sendMessage({
@@ -85,6 +93,7 @@ const LangoResponseScanner = (() => {
     } catch (err) {
       response = null;
     }
+    console.debug(`[Lango][perf] response scan round trip (debounce fired -> response received): ${Math.round(performance.now() - scanStartedAt)}ms`);
 
     // Fail OPEN here, deliberately, unlike the prompt side's fail-closed
     // rule: the response has already rendered and there is nothing left to

@@ -1971,3 +1971,215 @@ part of this task. Re-ran `cargo test --lib` (115 passing, unchanged) and
 `npm run build` (clean) as a final sanity check before committing, matching item
 28's already-verified state — no regression is possible from a docs-only change,
 but checked anyway rather than assuming it.
+
+## 32. Performance pass, Step 1 — real, measured, end-to-end latency report
+
+**Method note before the numbers**: this backend has no live Postgres reachable in
+this sandbox (the standing constraint across this whole engagement). Real
+backend-side numbers below come from hitting the actual deployed production
+backend (`https://lango-backend-qwkx.onrender.com`) with a real login and a real
+JWT — not curl against a mock, not estimates. One important, honest complication
+discovered while doing this: **the deployed production backend does not have the
+response-scanning route at all** — `POST /api/scan/response` returns a real `404`
+against production. Nothing has been pushed to Render since early in this
+engagement except one explicit deploy-blocking Docker fix (the standing "do not
+push" instruction), so production is still running a pre-response-scanning build.
+This means the previously-reported "11-15 second round trip" for response scanning
+(docs-accuracy pass, item 31) was measured entirely against a **local mock
+backend** with near-zero latency — it contains zero real backend network time.
+That number is real for what it measured (client-side debounce + real Gemini
+streaming time), but it is not a complete picture of what a real user would
+experience once this route is actually deployed. Both pieces are reported below,
+clearly separated, rather than conflated into one number.
+
+### 1. Extension-side timing (real, instrumented, against real production)
+
+Added permanent, lightweight `performance.now()` instrumentation, gated behind
+`console.debug` (silent unless DevTools is open, matching this codebase's existing
+`console.warn`/`console.info` conventions) to `background.js` (around the `fetch()`
+call itself, in both `scanPrompt` and `scanResponse`) and to
+`content/site-adapter.js` / `content/response-scanner.js` (around the full
+`chrome.runtime.sendMessage` round trip). Ran it through a real, loaded, unpacked
+copy of `extension/` (the same `chromium.launchPersistentContext` +
+`--load-extension` method verified in item 31) against a real `gemini.google.com`
+session, with a **real JWT from a real login** (not the fake test token used for
+earlier DOM-verification-only tests), calling the **real production backend**.
+
+Real observed numbers, one full real content-script-triggered prompt scan:
+- `chrome.runtime.sendMessage` round trip, content script's own measurement (send
+  → response received): **494ms**
+- The background worker's own `fetch()` call, measured independently inside the
+  service worker (request sent → JSON body parsed): **477ms**
+- **Message-passing overhead (the difference): ~17ms.** Real, nonzero, but small —
+  two orders of magnitude below the network+backend cost. Chrome's extension IPC
+  is same-machine, no network involved; this is the expected shape, now confirmed
+  with a real number instead of asserted from general knowledge.
+- Client-side work between receiving the response and the banner being visible in
+  the DOM: not separately isolated with its own timer (a single `textContent`
+  assignment plus one `appendChild` — not a plausible source of user-perceptible
+  delay), but the full round-trip number above already includes it.
+
+Three additional direct service-worker-to-production `fetch()` calls (bypassing
+the content script, isolating the network+backend leg specifically), using the
+browser's real Resource Timing API for a DNS/TCP/TLS/TTFB breakdown:
+
+| call | dns | tcp | tls | ttfb (request sent → first byte) | total |
+|---|---|---|---|---|---|
+| 1st (cold connection) | 50ms | 84-133ms | 51-88ms | 459-976ms | 597ms-1.18s |
+| 2nd (same session) | 0ms | 0ms | 0ms | 380-443ms | 387-461ms |
+| 3rd (same session) | 0ms | 0ms | 0ms | 364-936ms | 380-938ms |
+
+**Real, load-bearing finding: a real browser's `fetch()` reuses the TLS connection
+across requests within a session** — DNS/TCP/TLS all drop to 0ms from the second
+call onward. This is standard HTTP keep-alive behavior, now confirmed with real
+numbers against this specific backend rather than assumed. It matters directly for
+Step 2: the ~185-270ms one-time connection-setup cost is paid once per browser
+session (or after an idle-connection recycle), not on every single scan — a much
+better real-world shape than a naive per-request curl benchmark would suggest.
+
+### 2. Backend-side timing (real, against real production `/api/scan`)
+
+15 real, warm (post-cold-start) requests to `/api/scan` across two separate
+measurement runs (curl-based and browser-fetch-based), all against the current
+production build (4 sequential DB round trips per call: `check_consent`, the two
+`load_scan_config` queries, and the `INSERT ... RETURNING id`):
+
+- Range: **364ms - 1.27s**, most samples clustering around **400-700ms**.
+- Median (curl batch, n=8): ~430ms post-TLS-handshake.
+
+**Real, surprising finding, checked rather than assumed: this does not look
+dominated by DB query count.** A parallel batch of 8 real requests to `/health`
+(which does zero DB work, zero JWT decode, zero anything — a static JSON literal)
+showed **overlapping, comparably-variable timing** (median ~460ms post-TLS,
+including two outlier spikes to ~1.02-1.03s that `/api/scan` didn't show in that
+run). If 4 real, sequential DB round trips added meaningfully to per-request time
+on top of zero-work baseline, `/api/scan` should show a consistent, measurable
+premium over `/health` — it doesn't, at least not one that rises above this
+dataset's own run-to-run noise. The more plausible real explanation, given
+Render's free tier: **shared/throttled compute and reverse-proxy routing
+variance dominate over application-level query cost** at this request volume and
+tier. This matters for Step 2 — it means DB-query-count optimizations (real and
+worth doing regardless, see below) are unlikely to be the highest-leverage fix for
+perceived latency; cold-start avoidance is a much bigger, clearer lever (next
+section).
+
+**Login (`/api/auth/login`) specifically is slower than `/api/scan`** (~0.6-0.65s
+even warm) — expected and correct, not a bug: Argon2 password hashing is
+*deliberately* slow (that's the entire point of using it over a fast hash), and
+this is a real, load-bearing security property, not something Step 2 should touch.
+What Step 2 *should* address: **the dashboard frontend calls `login()` fresh on
+every single `loadDashboardData()` call** (`lib/lango/api-client.ts`), including
+what would become every future polling refresh under Step 5 — despite the
+returned JWT being valid for 12 hours (`SESSION_TTL_HOURS`). This is real,
+present-day wasted latency (~0.6s of unnecessary Argon2 verification per
+dashboard load) that becomes actively harmful once live-polling is added, since it
+would repeat every poll interval. Directly relevant to Step 2/5, not a
+theoretical concern.
+
+### 3. Cold start — the single largest number measured in this whole report
+
+A genuine, real, unprompted cold start (the production instance had been idle):
+**13.85 seconds** for a bare `/health` check, entirely Render free-tier spin-down
+behavior (documented honestly elsewhere in this repo already — `docs/ARCHITECTURE.md`,
+`docs/DEPLOYMENT_PLAN.md`). Every warm request afterward dropped to sub-1.3s. This
+dwarfs every other number in this report by more than an order of magnitude and is
+almost certainly the single most user-visible latency problem this product has —
+worth stating plainly rather than letting the more granular DB/network numbers
+above overshadow it.
+
+The existing GitHub Actions uptime check (`.github/workflows/uptime-check.yml`,
+added in the real-observability task) pings `/health` every 30 minutes — **this
+does not prevent cold starts**, since Render's free tier spins down after only 15
+minutes of inactivity; a 30-minute ping interval lets the instance go idle and
+cold-start again every cycle. This was built for failure *detection*, not
+keep-alive, and was never claimed to be the latter — but it's worth being explicit
+that it doesn't incidentally solve this problem either, so Step 2 doesn't
+mistakenly assume it does.
+
+### 4. Response scanning's real 11-15s figure, decomposed honestly
+
+Since production doesn't have this route deployed, the only real measurement
+available is the one already on record (item 31): client-side debounce
+(`DEBOUNCE_MS = 4000`, resetting on every DOM mutation, so total wait = time of
+last mutation + 4000ms tail) plus real, observed Gemini reply-streaming time
+(~2-3 seconds for a short reply in that test) plus the local mock backend's
+near-zero response time. **None of that 11-15s figure includes real backend
+network/processing time**, because the mock backend it was measured against was a
+local Node process. Once actually deployed, a real (non-mock) response scan would
+add the real, measured `/api/scan`-shaped backend cost from section 2 above
+(~400ms-1.3s warm, or the full cold-start penalty from section 3 if the instance
+had spun down) **on top of** the existing debounce+streaming wait — meaning the
+real, real-backend, real-world number is honestly *higher* than 11-15s, not lower,
+until Step 2/3's fixes are applied. This is stated plainly because rounding it down
+would be exactly the kind of overclaim this project has consistently tried to
+avoid.
+
+### 5. Database-level checks (grep/read-based — no live Postgres to query directly)
+
+- **N+1 query patterns**: none found. Grepped every route handler for a
+  query call inside a loop — zero matches. `routes/audit_log.rs` (the endpoint
+  most likely to have this problem, given it joins across `audit_log`, `users`,
+  and `review_decisions`) does it with two real `JOIN`s and a `QueryBuilder`, not
+  a per-row fetch. A genuine "checked, none found" result, not an assumption.
+- **Missing indexes**: none found on the columns this task named. `organisation_id`
+  is indexed (or is itself the primary key) on every table it's queried by:
+  `audit_log`, `users`, `detection_rules`, `security_events`, `drift_snapshots`,
+  `organisation_custom_patterns`, `review_decisions`; `organisation_detection_settings.organisation_id`
+  *is* the primary key. `audit_log` additionally has indexes on `created_at`,
+  `decision`, `department`, `language`, `sensitivity_class`, `facility_type`, and
+  a partial index on `response_flagged`. Checked by reading every migration file,
+  not assumed clean.
+- **Connection pooling**: real. `sqlx::PgPoolOptions::new().max_connections(10)` in
+  `main.rs` is a genuine connection pool, reused across requests — connections are
+  not opened fresh per request (confirmed by reading the code, not assumed). One
+  real gap found: **no `min_connections` is set**, so the pool doesn't proactively
+  keep any connection warm — after any idle period, the next request pays a fresh
+  Postgres TCP+TLS+auth handshake on top of everything else in this report. Not
+  independently measurable without a live Postgres instance to test against, but a
+  real, plausible, low-risk fix candidate for Step 2.
+- **Sequential-but-independent DB round trips — the one genuine, fixable
+  inefficiency found in the request-handling code itself**: `routes/scan.rs`'s
+  `scan()` calls `check_consent(...).await?` then `load_scan_config(...).await?`
+  sequentially, even though neither depends on the other's result (different
+  tables, no shared state) — two round trips paid serially where one wall-clock
+  round trip (via `tokio::try_join!`) would do. `load_scan_config` itself then
+  runs two more independent queries (the threshold lookup and the custom-patterns
+  lookup) sequentially for the same reason. `routes/response_scan.rs`'s handler
+  has the same shape: `check_consent` and the ownership `SELECT` are independent
+  and currently sequential. This is real and fixable without weakening the
+  "always read consent/policy fresh from the DB, never from the JWT" guarantee
+  documented in both files — concurrency doesn't change what's read or how fresh
+  it is, only whether the round trips overlap in wall-clock time.
+- **JWT verification**: `jsonwebtoken::decode` with HS256 (the default algorithm
+  here) is a single HMAC-SHA256 computation — inherently a microsecond-scale
+  operation, not a plausible source of the hundreds-of-milliseconds numbers in
+  this report. No caching opportunity worth adding (caching a decode result would
+  mean caching by token string, which changes every login — no repeated-computation
+  problem actually exists here to fix). This is a real "checked, nothing to fix"
+  result, not a skipped check.
+
+### 6. Detection engine (already benchmarked, re-confirmed with a fresh run)
+
+`cargo bench --bench scan_bench`, real numbers, this session: short 20-word prompt
+34.6µs (median), medium 100-word prompt 253µs, long 500-word prompt 757.5µs. All
+three orders of magnitude below every network/backend number in this report,
+confirming the task's own premise that this was never the real bottleneck. (The
+benchmark harness reported a "regressed" comparison against its stored baseline
+from an earlier run — this is noise from this sandbox's own variable background
+load across a long session, not a real code regression: `detection/scan.rs` has
+not been touched since that baseline was recorded, confirmed via `git status`.)
+
+### Summary — where the real time actually goes, ranked
+
+1. **Cold start: ~13.85s** (one-time, but real and the single biggest number here)
+2. **Response-scan debounce + real AI streaming time: several seconds**, inherent
+   to the streaming-response problem this scanner exists to solve, not a bug
+3. **Backend request processing (warm): ~400ms-1.3s**, apparently dominated by
+   Render free-tier infra variance more than DB query count specifically
+4. **TLS/connection setup: ~185-270ms, paid once per browser session** (confirmed
+   via real connection reuse), not per request
+5. **Redundant client-side re-login: ~0.6s wasted per dashboard load**, a real,
+   fixable, self-inflicted cost — the frontend's own choice, not the backend's
+6. **Extension message-passing IPC: ~17ms** — real, but negligible
+7. **Detection engine compute: 34-757 microseconds** — confirmed genuinely
+   irrelevant to real-world latency, exactly as this task's premise stated
