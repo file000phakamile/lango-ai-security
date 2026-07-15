@@ -130,3 +130,52 @@ here for the audit record, added after the fixes below were made:
 - `options.html`: both the intro paragraph's file reference and the entire
   developer-facing footer note replaced with a short, plain equivalent and a link
   to `HOW_TO_USE.md`.
+- `policy-builder.tsx`, `compliance-export.tsx`: the same `cargo run` mock-mode
+  instruction found in `system-health.tsx` was also present here — fixed
+  consistently across all three.
+- `policy-builder.tsx`: the ~85-word threshold-bound paragraph shortened to one
+  sentence pointing at the new Help tab; the reasoning it points to was added to
+  `HOW_TO_USE.md`/`help.tsx` so the pointer resolves to something real.
+- `health-data-guard.tsx`: the `docs/HEALTH_MODULE.md` and `/api/scan`
+  references removed from the empty-state message.
+- `pilot-status.tsx`, `drift-monitor.tsx`: re-checked against the same
+  checklist, no findings — left unchanged.
+
+## Verification (after all fixes)
+
+**Dashboard Help tab**: confirmed live in a real browser (`http://localhost:3000`,
+Playwright, headless Chromium) — the Help nav item is visible in the sidebar,
+clicking it renders the real Help panel content, and navigating directly to
+`http://localhost:3000/#help` on a fresh page load also lands on the Help view
+with the header correctly reading "Help" — the hash-based deep link the popup's
+help routing depends on genuinely works, not just in theory. Screenshotted
+(`help-tab-via-sidebar.png`, scratch-only).
+
+**Extension popup links**: confirmed live, DOM-inspected, in a real loaded
+extension (`chromium.launchPersistentContext` + `--load-extension`, the method
+established in Questions.md items 26/31/34), across three states:
+
+- **Logged out** (no stored role yet): the help link's `href` resolves to the
+  public GitHub-hosted `HOW_TO_USE.md` — the safe default before a role is known.
+- **Logged in as `compliance_admin`**: the help link's `href` switches to
+  `https://lango-app-dusky.vercel.app/#help` — the dashboard's own Help tab,
+  correctly deep-linked.
+- **Logged in as `staff`**: the help link stays on the public GitHub URL, exactly
+  as designed — a staff user is never pointed at dashboard access they don't
+  have.
+
+**The "Open live dashboard" link specifically**: DOM-inspected directly —
+`tagName: "A"`, a real `href`, and (while visible in the logged-in state)
+`getComputedStyle` confirms `cursor: pointer` and `textDecoration: none` (styled
+as a button, not literal underlined bracket text). Screenshotted
+(`popup-logged-in.png`, scratch-only) — visually a real gold button, not
+bracket-paren text. This is the definitive confirmation of the item 37/39
+finding: there was nothing to fix here, and this is now proven by direct
+inspection of the rendered DOM, not just a grep result.
+
+**Full test suite**: `cargo test --lib` — 116 passed, 0 failed. `cargo test
+--no-run` — all 8 integration test files, including
+`multi_tenant_isolation.rs`, compile cleanly. `npm run build` — clean throughout
+every part of this pass. No backend Rust code was touched by this task at all,
+so this result was expected, not a surprise, and was still run and checked
+rather than assumed.

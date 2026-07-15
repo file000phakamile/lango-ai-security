@@ -2,6 +2,10 @@
 
 Submission for the **AI4I 2026 Challenge — Track 4 (Deployment)**.
 
+**Looking for how to actually use this, not the technical detail below?** See
+[HOW_TO_USE.md](HOW_TO_USE.md) — a plain-language guide to both the extension
+and the dashboard.
+
 ## Problem
 
 Employees at banks, hospitals, insurers, and government ministries are increasingly
