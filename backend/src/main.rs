@@ -5,10 +5,13 @@ use axum::{
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use axum::http::{HeaderValue, Method};
+use tower_governor::GovernorLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-use lango_backend::{config::Config, observability::error_log_middleware, routes, state::AppState};
+use lango_backend::{
+    config::Config, observability::error_log_middleware, rate_limit::rate_limit_config, routes, state::AppState,
+};
 
 #[tokio::main]
 async fn main() {
@@ -63,6 +66,38 @@ async fn main() {
         // without this the frontend's download helper could still get the
         // file bytes but never the real filename.
         .expose_headers([axum::http::header::CONTENT_DISPOSITION]);
+
+    // Basic security hardening (product-depth task, Part 3): a single
+    // global, per-IP rate limit covering every route in this router,
+    // applied as the outermost layer so it rejects abusive traffic before
+    // any other work happens — before CORS, before the observability
+    // middleware, before any handler or database query. Real gap this
+    // closes: before this task, there was NO rate limiting anywhere in
+    // this backend (docs/ARCHITECTURE.md and docs/SECURITY_PRIVACY.md both
+    // stated this honestly as a target-only item) — /api/auth/login and
+    // /api/scan in particular had no protection against a brute-force or
+    // abuse loop.
+    //
+    // 10 req/s sustained with a burst of 30: generous enough for normal
+    // dashboard usage (the dashboard fires several parallel GETs on load —
+    // see lib/lango/api-client.ts's Promise.all), tight enough to meaningfully
+    // slow down a credential-stuffing loop against /api/auth/login or a
+    // scan-spam loop against /api/scan. One single global limit, not a
+    // per-route policy, deliberately — simplicity was chosen over tuning
+    // each endpoint individually for this pass; see Questions.md for the
+    // full reasoning and what a more mature setup would look like.
+    //
+    // SmartIpKeyExtractor reads the real client IP from X-Forwarded-For /
+    // X-Real-IP / Forwarded headers (falling back to the raw peer address),
+    // which is the correct choice ONLY because this backend is deployed
+    // behind Render's own reverse proxy (a trusted provider that sets these
+    // headers correctly) — see docs/SECURITY_PRIVACY.md. Using this
+    // extractor behind an UNTRUSTED proxy (or with none at all, exposed
+    // directly to the internet) would let a client trivially bypass the
+    // limit by spoofing the header; that is not this deployment's actual
+    // topology, but it's worth stating the assumption explicitly rather
+    // than leaving it implicit.
+    let governor_conf = rate_limit_config();
 
     let app = Router::new()
         .route("/api/auth/login", post(routes::auth::login))
@@ -138,10 +173,13 @@ async fn main() {
         .with_state(state.clone())
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        // Outermost layer — sees the final response exactly as the client
-        // will receive it (after CORS headers, after routing), which is
-        // what its status-code check needs. See src/observability.rs.
-        .layer(axum::middleware::from_fn_with_state(state, error_log_middleware));
+        // Sees the final response exactly as the client will receive it
+        // (after CORS headers, after routing), which is what its
+        // status-code check needs. See src/observability.rs.
+        .layer(axum::middleware::from_fn_with_state(state, error_log_middleware))
+        // Truly outermost — rejects a rate-limited request before it
+        // reaches anything else in this stack at all.
+        .layer(GovernorLayer { config: governor_conf });
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
@@ -149,7 +187,12 @@ async fn main() {
 
     tracing::info!("lango-backend listening on http://0.0.0.0:{}", port);
 
-    axum::serve(listener, app)
+    // `into_make_service_with_connect_info::<SocketAddr>()`, not the plain
+    // `into_make_service()` every other route in this codebase's history
+    // used — the governor rate limiter's IP-based key extraction needs the
+    // real peer address available as connection info, even when (as here)
+    // the primary extraction path reads a forwarded-for header instead.
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .await
         .expect("server error");
 }

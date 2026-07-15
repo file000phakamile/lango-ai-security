@@ -1549,3 +1549,202 @@ was reachable. `cargo test --lib`: 113 unit tests passing (zero regressions), pl
 real-browser Playwright verification of the System Health view (mock-mode honesty
 message, and a network-mocked "live" mode showing real mocked error rows rendered
 correctly in the table).
+
+## 28. Basic security hardening pass (response scanning + observability + hardening
+task, Part 3) — dependency audit, credential review, rate limiting
+
+**Scope, stated up front**: the task itself is explicit that this is *not* a
+penetration test — "the reasonable internal pass that should happen before that."
+Everything below should be read at that scope: a dependency audit, a manual
+credential-handling review, and closing the "no rate limiting" gap. A real external
+pentest remains genuinely future work, not something this entry claims to replace.
+
+**npm audit (frontend + root `package.json`, which also covers the `vercel` CLI
+devDependency)**: found 32 findings (1 low, 9 moderate, 22 high, 0 critical). Every
+single one of the 22 high findings traced back to `node_modules/vercel`/`@vercel/*`
+— confirmed with `npm audit --omit=dev`, which showed the actual *production*
+dependency tree (what's shipped to users, as opposed to the local `vercel --prod`
+deploy tool) has zero high/critical findings and only 2 moderate ones, both nested
+inside Next.js's own vendored `node_modules/next/node_modules/postcss@8.4.31` —
+build-time only, never reachable by runtime user input, and npm's own suggested fix
+for those two would downgrade Next 16 to Next 9, which is obviously wrong and was
+rejected. Fixed the 22 high findings with two changes: bumped the `vercel`
+devDependency `^54.21.1` → `^56.1.0` (confirmed genuinely latest via `npm view
+vercel version`, not guessed) — this alone did *not* clear the findings, because
+even `vercel@56.1.0`'s own bundled `@vercel/*` builder sub-packages still pin
+vulnerable versions of `tar`, `undici`, `path-to-regexp`, `minimatch`, `js-yaml`,
+`ajv`, `@tootallnate/once`, and `smol-toml` — an upstream gap in Vercel's own
+packages, not something a version bump alone can fix. Added `package.json`
+`overrides` forcing patched versions of all eight, each checked against the real
+npm registry (`npm view <pkg> versions --json`) and chosen to stay within the same
+major version as the vulnerable one wherever a patched same-major release existed,
+specifically to minimize the chance of a silent breaking change from a devDependency
+override. (Caught one typo this way: first set `js-yaml` to a nonexistent `4.1.2`;
+the version-list check showed only `4.0.0`-`4.3.0` exist, corrected to `4.3.0`.)
+Re-ran `npm audit` after: 0 high, 0 critical, 2 moderate (the same pre-existing,
+build-time-only Next-vendored postcss findings noted above). Verified this didn't
+break anything with a real `npm run build` — Next.js 16.2.10, Turbopack, every page
+compiled, TypeScript passed clean.
+
+**Extension**: `extension/` has no `package.json` and no `node_modules` — genuinely
+zero third-party JS dependencies shipped into the browser-running code. Nothing to
+audit, and worth stating as a real, positive security property rather than an
+oversight: no npm supply-chain exposure at all in the code that actually runs
+inside a user's browser session alongside their AI chat tab.
+
+**cargo audit (backend)**: `cargo-audit` wasn't installed in this environment
+(`cargo install cargo-audit --locked` first). Found 6 vulnerabilities plus 3
+unmaintained-crate warnings (`paste`, `rustls-pemfile`, `ttf-parser` — informational,
+no severity score, below this task's explicit "high or critical" fix bar, left
+alone). Went through all 6 individually rather than pattern-matching on severity
+labels alone, because a `Cargo.lock` entry existing doesn't always mean the
+vulnerable code is actually compiled into the binary a user runs:
+
+- **`lopdf 0.31.0` — HIGH, CVSS 7.5** (stack overflow via deeply nested PDF
+  objects), solution "upgrade to >=0.42.0". Pulled in transitively by `printpdf
+  0.7.0`, used for the compliance-export PDF feature ([item 24](#24-compliance-export-product-depth-task-part-2--design-and-judgment-calls)).
+  Tried `cargo update -p lopdf --precise 0.42.0` directly rather than assuming it
+  would fail — it did, with cargo's own error showing `printpdf v0.7.0` hard-pins
+  `lopdf = "^0.31.0"`. The only real fix is upgrading `printpdf` itself, but the
+  next available major, `printpdf 0.10.x`, has a completely different, incompatible
+  API (bundled font files required, a different `Op`-based document model) — the
+  same API gap [item 24](#24-compliance-export-product-depth-task-part-2--design-and-judgment-calls)
+  already documented as the reason `printpdf 0.7` was chosen deliberately over
+  `0.10` in the first place. **This is the one finding in this pass that meets the
+  task's "high/critical, fix it" bar and genuinely wasn't fixed.** Reachability
+  reasoning, for what it's worth: this backend's PDF code path is write-only — it
+  only ever calls `printpdf::PdfDocument::save()` to generate a brand-new PDF from
+  data this backend already holds; there is no PDF-upload endpoint anywhere in this
+  API, and `lopdf`'s vulnerable code is specifically in *parsing* deeply nested PDF
+  input. So the vulnerable code path is very likely unreachable through this
+  application's actual exposed surface — but "very likely unreachable by this
+  application's current design" is a much weaker claim than "fixed," and a
+  same-session migration to `printpdf 0.10`'s incompatible API, without a way to
+  visually re-verify the generated PDF's correctness end-to-end, was judged riskier
+  than deferring this with the reasoning stated plainly here. Genuine future work,
+  not a silently-dropped finding.
+- **`rsa 0.9.10` — MEDIUM, CVSS 5.9** (Marvin Attack timing side-channel), "no fixed
+  upgrade is available". Checked whether this is even real exposure before treating
+  it as one: `cargo tree -i rsa` (and again with `--target all`) returned "nothing
+  to print" — meaning `rsa` is not actually in the compiled dependency graph at all,
+  despite appearing in `Cargo.lock`. Traced it to `sqlx-mysql`'s own dependency
+  list via a direct `Cargo.lock` grep, but this backend's `Cargo.toml` only enables
+  sqlx's `"postgres"` feature, never `"mysql"` — confirmed with `cargo tree | grep
+  -i "mysql\|rsa "` returning nothing. This is a known sqlx quirk: the lockfile
+  keeps entries for a workspace's other optional backend crates regardless of which
+  features are actually active. Below the severity bar anyway (medium, not
+  high/critical), and confirmed zero real exposure on top of that.
+- **`rustls-webpki 0.101.7` — three advisories** (RUSTSEC-2026-0098/0099/0104,
+  name-constraint and CRL-parsing issues), no CVSS score assigned by the advisory
+  database, solution "upgrade to >=0.103.12/.13". Traced via `cargo tree -i
+  rustls-webpki` to `rustls 0.21.12` ← `sqlx-core 0.7.4`'s `runtime-tokio-rustls`
+  feature (real Postgres TLS, not unused). Tried `cargo update -p rustls-webpki
+  --precise 0.103.13` directly — failed, cargo's error showing `sqlx-core 0.7.4`
+  hard-pins `rustls = "^0.21.7"`, which itself pins `rustls-webpki = "^0.101.7"`.
+  No CVSS score assigned means this doesn't meet the task's "high or critical" bar
+  on its own terms, and the only real fix (below) requires the same sqlx major
+  upgrade.
+- **`sqlx 0.7.4`** (RUSTSEC-2024-0363, binary protocol misinterpretation via
+  truncating/overflowing casts), no CVSS score assigned, solution "upgrade to
+  >=0.8.1". This is a *direct* dependency (`sqlx = "0.7"` in `Cargo.toml`), used
+  across 30+ backend files, so a fix means a major version bump with a real chance
+  of breaking API changes throughout the whole backend. No CVSS score again means
+  it doesn't meet the stated fix bar by itself, and — the more important reason —
+  this specific sandbox has no live Postgres reachable to run the DB-touching
+  integration test suite against after a change this size, the same constraint
+  that has applied to every DB-touching integration test across this entire
+  multi-session engagement. Verifying a sqlx major-version bump without being able
+  to actually run queries against it would be worse than not attempting it in a
+  single pass. Deferred, with this reasoning stated rather than left implicit.
+
+**Net result**: of 6 cargo-audit findings, one (`lopdf`) is a real, unresolved
+high-severity finding, deliberately deferred with reasoning above rather than
+silently left out of this write-up; the rest are either confirmed unreachable
+(`rsa`) or below the task's own stated high/critical bar and blocked on the same
+"no live Postgres in this sandbox" constraint that has limited every DB-dependent
+verification this session (`rustls-webpki`, `sqlx`).
+
+**Secret/credential handling review**: went through every credential-adjacent code
+path added across this entire multi-session engagement, not just this task's own
+new code. Backend: grepped every `tracing::*!` call in `backend/src/**/*.rs` for
+proximity to "password"/"jwt"/"secret"/"token" — found only the two legitimate
+`auth.rs` login-failure logs added in [Part 2](#27-real-observability-product-depth-task-part-2--design-and-judgment-calls)
+of this same task, which correctly log `email`/`user_id` only, never the password.
+Checked `config.rs` (the JWT signing secret is only ever read from an env var, never
+logged anywhere), `error.rs` (the `Hash` error variant's `{0}` interpolation only
+ever carries argon2's own structural error text, which by the design of the
+`argon2`/`password-hash` crates never embeds the raw password — and regardless,
+`AppError::Hash(_)` is *always* sanitized to a generic "An internal error occurred."
+string in the actual HTTP response, so even a hypothetical leak in that error
+variant's internals would never reach a client), and `routes/organisations.rs`
+(the raw plaintext password is hashed immediately on signup and never logged or
+stored anywhere else). Extension: `grep -rn "console\." extension --include=*.js`
+found exactly two calls total — a harmless `console.info` logging a hardcoded site
+name, and a `console.warn` in `response-scanner.js` ([item 26](#26-response-scanning-product-depth-task-part-1--real-verification-and-a))
+logging the background worker's response object, which only ever carries a
+sanitized error message/code, never the JWT or password. Frontend: the pre-existing
+`console.warn("Lango: real backend unavailable...", err)` fallback in
+`lib/lango/api-client.ts` was also checked (not new to this task, but in scope for
+"every secret/credential handling path added across this whole project") — `err`
+is always a typed `ApiError` carrying a non-sensitive message, confirmed safe.
+Also confirmed the new `observability.rs` middleware itself only ever reads the
+*response* body (and only its already-sanitized `error.message` field), never the
+request body — so it can't accidentally log a submitted password or JWT even if a
+future endpoint mishandled one. **Conclusion: clean — no findings.**
+
+**Rate limiting**: before this task, there was genuinely no rate limiting anywhere
+in this backend — `docs/ARCHITECTURE.md` and `docs/SECURITY_PRIVACY.md` both said
+so plainly. Added a single global, per-IP limit via `tower_governor` (10 req/s
+sustained, burst of 30), applied as the single outermost `.layer()` on the whole
+`Router` in `main.rs`, after even the observability middleware — so it rejects
+abusive traffic before any other work happens, and, more importantly for "confirm
+nothing was added without it," it covers every route by construction, including
+every endpoint added in this task's own Part 1 and Part 2 and every endpoint added
+in the prior product-depth task (Policy Builder, Compliance Export, Active
+Learning) — there is no per-route opt-in step to forget. One global limit rather
+than tuned per-endpoint limits was a deliberate simplicity-over-precision choice for
+this pass; a more mature setup would rate-limit `/api/auth/login` far tighter than
+`/api/audit-log` reads, which this doesn't do. `SmartIpKeyExtractor` reads
+`X-Forwarded-For`/`X-Real-IP`/`Forwarded` before falling back to the raw peer
+address — correct and safe *only* because this backend is deployed behind Render's
+own trusted reverse proxy; stated explicitly in code and docs because the same
+extractor behind an untrusted or absent proxy would let a client trivially bypass
+the whole limit by spoofing the header, which is not this deployment's actual
+topology but is worth being explicit about regardless.
+
+Verified the `tower_governor`/`GovernorConfigBuilder`/`GovernorLayer` API against
+docs.rs *before* writing code (specifically the 0.4.2 docs, not the latest 0.8.0,
+which requires axum 0.8/tower 0.5 and would not have compiled against this
+project's axum 0.7/tower 0.4) — paid off, the code compiled with zero API-mismatch
+errors on the first attempt. Two real tests in `backend/src/rate_limit.rs`, both
+firing actual HTTP requests through a real `Router` with the real `GovernorLayer`
+via `tower::ServiceExt::oneshot` (not a config-shape assertion): a single ordinary
+request always succeeds, and 60 rapid requests from the same key trigger at least
+one 429. Getting there involved a real debugging cycle worth recording honestly:
+the first attempt used plain `oneshot()` requests with no IP information at all,
+and even the "ordinary request" test failed with a 500 and body "Unable To Extract
+Key!". First fix attempt — layering `axum::extract::connect_info::MockConnectInfo`
+onto the test router — did not resolve it; the same error persisted, meaning
+`SmartIpKeyExtractor`'s peer-IP fallback doesn't reliably pick up a
+`MockConnectInfo`-injected extension through `oneshot` dispatch (root cause not
+fully pinned down, and not worth over-investigating for a test-only mechanism).
+Abandoned that approach and instead added an explicit `x-forwarded-for` header to
+every test request, since `SmartIpKeyExtractor` checks that header first per its
+own documented priority order — this worked immediately. Adding `tower_governor`
+required also switching `main.rs`'s `axum::serve(...)` call to
+`app.into_make_service_with_connect_info::<SocketAddr>()`, since the extractor
+needs real connection info available even though its primary path reads a header
+instead.
+
+Re-ran `cargo audit` after adding `tower_governor`/`governor`: identical 6
+pre-existing findings, nothing new introduced by the rate-limiting dependencies
+themselves.
+
+**Verification**: `cargo test --lib`: 115 unit tests passing (up from 113 before
+this task's Part 3, zero regressions — the two new tests are `rate_limit`'s own).
+`cargo test --no-run`: all 8 integration test files (including the new
+`response_scan.rs` and `observability.rs` from this task's earlier parts) still
+compile cleanly. `npm run build`: succeeds cleanly after the `overrides` change.
+No backend or frontend functionality changed by this task's own new code beyond
+the rate limit itself and the dependency version bumps — nothing in this part
+touches detection logic, the dashboard, or the extension.

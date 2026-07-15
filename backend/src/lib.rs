@@ -4,6 +4,7 @@ pub mod detection;
 pub mod error;
 pub mod models;
 pub mod observability;
+pub mod rate_limit;
 pub mod reports;
 pub mod routes;
 pub mod state;
