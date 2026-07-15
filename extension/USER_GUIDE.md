@@ -125,9 +125,13 @@ one actually confirmed working). Type a prompt, and either press Enter or click 
 site's own Send button — Lango intercepts that action before the site's own JavaScript
 ever sees it.
 
-The very first thing you'll see, every time, is a brief grey **"Lango: scanning
-prompt…"** banner near the bottom of the page while the prompt is sent to Lango's
-backend for a decision. What happens next depends on what was found:
+A real prompt scan is fast — typically well under a second (see Questions.md's
+performance pass for the real measured numbers) — so most of the time you'll go
+straight to the *result* banner below with nothing shown in between; a brief grey
+**"Lango: scanning prompt…"** indicator only appears if a specific scan happens to
+take longer than about a second (design pass, Step 5 — a calm spinner for a
+sub-second wait was judged more distracting than informative). What happens next
+depends on what was found:
 
 **A clean prompt with no sensitive data** — e.g. "What's a good recipe for banana
 bread?" You do **not** get silence: a brief **green** banner appears — "Lango: no
@@ -172,9 +176,17 @@ this one automatically on your behalf.
 **After the AI replies — response scanning (chatgpt.com, claude.ai, gemini.google.com
 only).** A few seconds after the AI's reply finishes appearing on screen (Lango waits
 for it to stop changing before checking it — see the Caveats section for why this
-can't be instant), Lango quietly scans the reply too. If it looks clean, you'll see
-**nothing at all** — no banner, on purpose, so a banner always means something worth
-reading. If the reply itself seems to contain something sensitive (a leaked secret, an
+can't be instant), Lango quietly scans the reply too. Response scanning genuinely
+takes a while — real measurements put it at roughly 8-9 seconds even after a
+performance pass specifically aimed at this (Questions.md has the numbers) — so
+you'll see a small, calm loading indicator while it's in progress: nothing for the
+first second or so, then a simple spinner, then a short rotating status line
+("checking response for sensitive content…") if it runs past a few seconds, rather
+than one static label sitting unchanged on screen the whole time. Once the check
+actually finishes: if it looks clean, that indicator simply disappears and you'll
+see **nothing at all** afterward — no banner, on purpose, so a banner always means
+something worth reading. If the reply itself seems to contain something sensitive (a
+leaked secret, an
 entity that shouldn't be in a reply, anything that looks unsafe), you'll see an
 **amber** banner — "Lango: This response may contain \[...\]. Review it carefully
 before using or sharing it." **The AI's actual reply is never changed, hidden, or

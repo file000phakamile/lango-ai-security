@@ -118,7 +118,16 @@ const LangoSiteAdapter = (() => {
     e.stopImmediatePropagation();
 
     const scanStartedAt = performance.now();
-    showBanner("Lango: scanning prompt…", "neutral", { autoDismiss: false });
+    // Design pass, Step 5: a staged loading indicator, not a static banner
+    // sitting unchanged on screen — see content/ui-banner.js's own comment
+    // for the full timing model. Real measurement (performance pass, Step
+    // 1/3) put a warm prompt scan at ~400-900ms, so in the common case
+    // nothing renders at all before the result banner replaces it — exactly
+    // the "don't show noise for a sub-second wait" goal.
+    const indicator = startScanIndicator("Lango: scanning prompt…", [
+      "Lango: scanning prompt…",
+      "Lango: checking for sensitive data…",
+    ]);
 
     let response;
     try {
@@ -152,7 +161,7 @@ const LangoSiteAdapter = (() => {
       } else {
         detail = response?.message || "Lango backend unreachable";
       }
-      showBanner(`Lango: blocked — ${detail}. Prompt not sent.`, "blocked", { autoDismiss: false });
+      indicator.done(`Lango: blocked — ${detail}. Prompt not sent.`, "blocked", { autoDismiss: false });
       return;
     }
 
@@ -168,14 +177,14 @@ const LangoSiteAdapter = (() => {
     }
     switch (result.decision) {
       case "cleared_no_entities":
-        showBanner("Lango: no sensitive entities detected — sending", "cleared", { autoDismiss: true });
+        indicator.done("Lango: no sensitive entities detected — sending", "cleared", { autoDismiss: true });
         resend(adapter, composer);
         break;
 
       case "redacted_and_forwarded": {
         adapter.writeText(composer, result.redacted_prompt);
         const n = result.entities_detected ? result.entities_detected.length : 0;
-        showBanner(
+        indicator.done(
           `Lango: ${n} entit${n === 1 ? "y" : "ies"} redacted before sending`,
           "redacted",
           { autoDismiss: true },
@@ -195,7 +204,7 @@ const LangoSiteAdapter = (() => {
         // from the user here; this auto-dismisses like a normal redaction,
         // unlike the blocked case below.
         adapter.writeText(composer, result.redacted_prompt);
-        showBanner(
+        indicator.done(
           "Lango: redacted (low-confidence name match, flagged for review)",
           "reviewFlagged",
           { autoDismiss: true },
@@ -222,11 +231,11 @@ const LangoSiteAdapter = (() => {
         // pattern match]"). `user_message` is the plain-language
         // counterpart built from the same match data, with none of that —
         // this is the one this banner should always show.
-        showBanner(`Lango: blocked — ${result.user_message}`, "blocked", { autoDismiss: false });
+        indicator.done(`Lango: blocked — ${result.user_message}`, "blocked", { autoDismiss: false });
         break;
 
       default:
-        showBanner("Lango: unexpected response from backend — prompt not sent", "blocked", { autoDismiss: false });
+        indicator.done("Lango: unexpected response from backend — prompt not sent", "blocked", { autoDismiss: false });
     }
   }
 

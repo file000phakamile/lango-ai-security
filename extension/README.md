@@ -177,8 +177,12 @@ For the plain-language version of these same steps (no dev background assumed), 
    login worked.
 6. Go to [chatgpt.com](https://chatgpt.com), type a prompt containing something
    sensitive-looking (e.g. a made-up national ID or phone number), and hit Enter.
-   You should see a "Lango: scanning…" banner, followed by either the prompt being
-   redacted-and-sent, blocked, or sent through unchanged, depending on what it found.
+   A real prompt scan is typically well under a second (see Questions.md's
+   performance pass), so you'll usually see the *result* banner directly
+   (redacted-and-sent, blocked, or sent through unchanged) with no separate
+   "scanning" banner in between — a loading indicator only appears at all if the
+   scan takes longer than about a second (design pass, Step 5), which is the
+   common case for response scanning, not prompt scanning.
 
 ## Verification — what was and wasn't actually tested
 

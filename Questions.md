@@ -2470,3 +2470,96 @@ matching each existing banner color/kind — this is what "the same icon and col
 language" means in practice here: applying the dashboard's already-established
 principle to the one surface that didn't have it yet, not preserving something
 that already existed in the extension.
+
+## 36. Design pass, Step 5 — implementation, with real verification (live browser
++ route-mocked polling correctness)
+
+Implemented everything from item 35's plan.
+
+**Extension banner system**: `extension/content/ui-banner.js` rebuilt around a
+`startScanIndicator(label, phrases)` staged controller sharing the terminal
+`showBanner()`'s element id (`lango-banner`) — a loading indicator and a result
+banner can never coexist, by construction, not by convention. `site-adapter.js`'s
+prompt-scan flow and `response-scanner.js`'s full wait (from first detecting a new
+response turn through to the debounce-fired scan resolving — not just the fast
+post-debounce round trip) both use it. Added: `role="status"` +
+`aria-live="polite"` (`"assertive"` for a blocked outcome) on every banner state —
+this extension had zero accessibility treatment for banners before this; inline
+SVG icons per banner kind, extending the dashboard's existing icon+color grammar;
+a `prefers-reduced-motion` media query that drops the spinner/fade animations
+while keeping the state changes themselves (text, color, ARIA announcements); and
+the Step 4-chosen backdrop-filter blur + softened shadow, CSS-only, touching zero
+site-adapter/interception code.
+
+**Live-verified, not just code-reviewed** (real browser, real `gemini.google.com`,
+real loaded extension — same method as items 26/31/34): confirmed a fast (~500ms)
+prompt scan against the local mock backend shows the terminal banner immediately
+with NO loading indicator ever rendering — the "<1s, show nothing" goal, working
+as designed. Confirmed the full response-scan staged progression in one real run
+(elapsed ms from Enter-press): t=509ms terminal prompt banner (icon, no spinner);
+t=3541ms indicator enters indeterminate stage (spinner, no icon — correctly
+distinct from a terminal state); t=5555ms rotating phrase text changes; t=7567ms
+terminal flagged banner (icon, no spinner) — a real, observed, correct traversal
+of every stage in the design, not asserted from reading the code. Confirmed
+`prefers-reduced-motion` live via `page.emulateMedia`: the spinner element doesn't
+render at all, the banner's entrance animation resolves to `none`, and the
+indicator text is still shown — exactly "simplify, don't remove." Screenshots
+captured (`indicator-midflight.png`, `indicator-final-banner.png`, scratch-only,
+not committed) visually confirm the translucent/blurred banner treatment and the
+new icons rendering correctly against the real page.
+
+**Dashboard**: `components/lango/atoms.tsx` gained a `useCountUp` hook (eased,
+skips to the final value under `prefers-reduced-motion` or on any update after the
+first mount — re-animating every poll tick would compete with, not support, the
+"new activity" signal) wired into `KPI`, and a `Skeleton`/`DashboardSkeleton` pair
+replacing the old single "Loading Lango dashboard…" text line.
+`components/lango/lango-dashboard.tsx` gained: the skeleton on initial load; a
+`key={view}`-forced remount + `animate-in fade-in slide-in-from-bottom-1` (from
+the already-installed `tw-animate-css` package — no new dependency) on sidebar
+view switches, with `motion-reduce:animate-none`; and 15-second polling scoped to
+when `data.source === "live"` (mock mode's random data generator would otherwise
+manufacture fake "activity" on every poll — the same honesty pattern already
+established for PolicyBuilder/ComplianceExport/SystemHealth), reusing Step 3's
+`getToken()` cache so polling doesn't multiply login cost, whole-object
+replacement only after a full successful reload (never partial), and a silent
+catch on a failed poll that leaves the last good data on screen. A small pulsing
+live-status dot (existing `Circle` icon, `animate-pulse motion-reduce:animate-none`)
+was added next to the existing "system operational" badge as the one visible cue
+that polling is active, judged sufficient rather than adding new UI chrome.
+
+**WebSocket, considered and not built, stated explicitly per the task's own "if
+reasonable within scope" framing**: this backend has no WebSocket endpoint or
+connection infrastructure at all today. Building one — a new connection-handling
+layer, a subscription/broadcast model for audit-log inserts, browser reconnect
+logic — would be a materially larger addition than a design pass, closer in scope
+to the "product-depth" backend tasks earlier in this engagement. Polling is the
+real, complete, working answer chosen instead, not a fallback apologized for.
+
+**Dashboard verification, live where possible, route-mocked where CORS made a
+real test impossible**: `localhost:3000` pointed at the real deployed production
+backend hits a real, correct CORS rejection (the backend's `CORS_ORIGIN` only
+allows the deployed Vercel origin — intentional security behavior, not a bug to
+route around), so the initial live-browser pass exercised the mock-data path
+(confirming the skeleton/transition/KPI code renders correctly with no console
+errors, screenshotted) but not real polling. Polling's own *correctness* — the
+actual thing the task's Verification section asked to confirm — was then tested
+directly with Playwright's `page.route()` (mocking backend responses so
+`data.source === "live"` genuinely activates polling) and `page.clock` (fast-
+forwarding virtual time past the 15s interval deterministically, not a real wait):
+confirmed exactly 2 real fetches occur (initial load + one poll, not more),
+confirmed a row present in both mocked responses renders exactly once (not
+duplicated), confirmed new data from the second response appears correctly, and
+confirmed that when a subsequent poll is made to fail outright (`route.abort`),
+the last good data stays on screen with no error state or blank flash — all four
+outcomes the Verification section named by name (duplicate data, flickering,
+broken state on a slow/interrupted connection), tested directly rather than
+inferred from code review.
+
+**Verification**: `cargo test --lib`: 116 passed, 0 failed (unchanged from Step 3
+— this step touched no backend code at all). `npm run build`: clean. **One
+pre-existing, unrelated issue found and explicitly NOT fixed here**: `npm run
+lint` currently fails with an internal ajv/eslintrc compatibility error,
+confirmed via `git log`/`git status` to predate this entire task (last touched in
+the security-hardening pass's `ajv` version override, commit `4d10d80`, before
+this session started) — out of scope for a performance/design pass and not
+introduced by it; noted here rather than silently left unmentioned.

@@ -49,6 +49,12 @@ const LangoResponseScanner = (() => {
   const scannedElements = new WeakSet();
   let pendingElement = null;
   let debounceTimer = null;
+  // Design pass, Step 5: covers the FULL user-perceived wait (still-
+  // streaming detection + the debounce tail), not just the fast round trip
+  // after the debounce fires — this is the specific case the design
+  // direction called out by name ("particularly response scanning"), since
+  // it's still ~8-9s even after the performance pass's Step 3 fix.
+  let activeIndicator = null;
 
   function init(adapter) {
     if (typeof adapter.findLatestResponseTurn !== "function") return;
@@ -81,6 +87,13 @@ const LangoResponseScanner = (() => {
       isNewResponseTurn || mutations.some((m) => latest.contains(m.target));
     if (!mutationTouchesResponse) return;
 
+    if (isNewResponseTurn && !activeIndicator) {
+      activeIndicator = startScanIndicator("Lango: checking response…", [
+        "Lango: checking response for sensitive content…",
+        "Lango: almost done reviewing the reply…",
+      ]);
+    }
+
     pendingElement = latest;
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => onStable(), DEBOUNCE_MS);
@@ -88,14 +101,33 @@ const LangoResponseScanner = (() => {
 
   async function onStable() {
     const el = pendingElement;
-    if (!el || scannedElements.has(el)) return;
+    // Claims the active indicator (if any) for this specific stabilisation
+    // — every early `return` below routes through `finishSilently()` so the
+    // indicator never gets stranded on screen if this function bails out
+    // partway through.
+    const indicator = activeIndicator;
+    activeIndicator = null;
+    function finishSilently() {
+      if (indicator) indicator.clear();
+    }
+
+    if (!el || scannedElements.has(el)) {
+      finishSilently();
+      return;
+    }
     scannedElements.add(el);
 
     const auditLogId = LangoSiteAdapter.getLastScanId();
-    if (!auditLogId) return; // no correlated prompt scan this session — nothing to attach this response to
+    if (!auditLogId) {
+      finishSilently(); // no correlated prompt scan this session — nothing to attach this response to
+      return;
+    }
 
     const text = (el.innerText != null ? el.innerText : el.textContent || "").trim();
-    if (!text) return;
+    if (!text) {
+      finishSilently();
+      return;
+    }
 
     // Real-latency instrumentation (performance pass, Step 1/3): measures
     // from the moment the debounce fires (the response was judged stable)
@@ -126,15 +158,22 @@ const LangoResponseScanner = (() => {
     // anyone debugging, not surfaced to the user as an error.
     if (!response || response.ok !== true) {
       console.warn("[Lango] response scan could not complete:", response);
+      finishSilently();
       return;
     }
 
     if (response.data.flagged) {
-      showBanner(`Lango: ${response.data.user_message}`, "reviewFlagged", { autoDismiss: false });
+      if (indicator) {
+        indicator.done(`Lango: ${response.data.user_message}`, "reviewFlagged", { autoDismiss: false });
+      } else {
+        showBanner(`Lango: ${response.data.user_message}`, "reviewFlagged", { autoDismiss: false });
+      }
+    } else {
+      // Not flagged: deliberately silent, no banner at all — a banner on
+      // every single clean response would train the user to ignore Lango's
+      // banners entirely, defeating the point of showing one when it matters.
+      finishSilently();
     }
-    // Not flagged: deliberately silent, no banner at all — a banner on
-    // every single clean response would train the user to ignore Lango's
-    // banners entirely, defeating the point of showing one when it matters.
   }
 
   return { init };

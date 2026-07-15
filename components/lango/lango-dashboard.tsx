@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Activity, AlertTriangle, Circle, FileDown, FileText, HeartPulse, KeyRound, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
-import { Badge } from "./atoms";
+import { Badge, DashboardSkeleton } from "./atoms";
 import { CommandCenter } from "./command-center";
 import { AuditLog } from "./audit-log";
 import { FairnessAudit } from "./fairness-audit";
@@ -57,12 +57,51 @@ export function LangoDashboard() {
     };
   }, []);
 
+  // Design pass, Step 5: lightweight polling for Command Center and Audit
+  // Log specifically — the given design research's single most-cited gap
+  // between an average and a genuinely good security dashboard. A
+  // WebSocket-based push was considered and not built: this backend has no
+  // WebSocket endpoint or connection infrastructure at all today, and
+  // adding one would be a materially larger addition than this design pass'
+  // scope — "if reasonable within scope" from the task's own wording — so
+  // polling is the real, working answer here, not a compromise.
+  //
+  // Live-only, deliberately: mock mode's `generateAuditLog` produces fresh
+  // random rows on every call, so polling it would show constantly-changing
+  // fake "activity" — actively misleading in exactly the way this
+  // codebase's established honesty pattern (PolicyBuilder, ComplianceExport,
+  // SystemHealth) avoids elsewhere. Whole-object replacement only after a
+  // full, successful reload (never a partial update) avoids duplicate or
+  // torn state; a failed poll (a slow or interrupted connection) is
+  // swallowed silently and the last good data stays on screen rather than
+  // showing an error or a blank view — the next poll simply tries again.
+  const pollInFlight = useRef(false);
+  useEffect(() => {
+    if (!data || data.source !== "live") return;
+    const interval = setInterval(async () => {
+      if (pollInFlight.current) return;
+      pollInFlight.current = true;
+      try {
+        const fresh = await loadDashboardData();
+        if (fresh.source === "live") setData(fresh);
+      } catch {
+        // Swallowed deliberately — see comment above.
+      } finally {
+        pollInFlight.current = false;
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [data?.source]);
+
   const activeNav = NAV.find((n) => n.key === view)!;
 
   if (!data) {
     return (
-      <div className="min-h-screen w-full bg-[#F6F7F8] text-[#8A93A1] flex items-center justify-center font-sans text-sm">
-        Loading Lango dashboard…
+      <div className="min-h-screen w-full bg-[#F6F7F8] text-[#14171C] flex font-sans">
+        <aside className="hidden md:flex w-56 shrink-0 border-r border-[#E1E4E8] bg-[#F6F7F8]" />
+        <main className="flex-1 min-w-0 p-4 md:p-8">
+          <DashboardSkeleton />
+        </main>
       </div>
     );
   }
@@ -156,12 +195,21 @@ export function LangoDashboard() {
               shape, never get squeezed into a wrapped/broken badge. */}
           <div className="shrink-0">
             <Badge color={data.source === "live" ? "#2F7A53" : "#8A6323"}>
-              <Circle size={7} fill={data.source === "live" ? "#2F7A53" : "#8A6323"} className="mr-0.5" />
-              {data.source === "live" ? "system operational" : "mock data (backend unavailable)"}
+              <Circle
+                size={7}
+                fill={data.source === "live" ? "#2F7A53" : "#8A6323"}
+                className={`mr-0.5 ${data.source === "live" ? "animate-pulse motion-reduce:animate-none" : ""}`}
+              />
+              {data.source === "live" ? "system operational — live" : "mock data (backend unavailable)"}
             </Badge>
           </div>
         </header>
-        <div className="p-4 md:p-8">
+        {/* `key={view}` forces a remount on every sidebar switch, which is
+            what retriggers the fade/slide-in below — a real, if small,
+            state reset cost, judged worth it for a genuine transition
+            rather than content just snapping into place (see Questions.md's
+            Step 5 write-up). */}
+        <div key={view} className="p-4 md:p-8 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
           {view === "command" && <CommandCenter log={log} summary={data.summary} />}
           {view === "audit" && <AuditLog log={log} source={data.source} />}
           {view === "fairness" && (
