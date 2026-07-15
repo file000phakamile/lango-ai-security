@@ -20,12 +20,59 @@ still describes as real, not-yet-done work.
 - **Demo backend**: Render, via Blueprint (`render.yaml` at the repo root) — a single
   Docker-based web service plus a managed Postgres instance, both on the free tier.
   Single environment, no staging/production split, same as the frontend.
-- **Target pilot**: a tenant-isolated environment (per docs/ARCHITECTURE.md) — the
-  pilot institution's traffic and data isolated from any other tenant. **See the
-  docs-accuracy pass's Part 2 (Questions.md) for the real decision made here**:
-  what's actually built is shared infrastructure with row-level isolation, not a
-  dedicated database/instance per institution as originally sketched — full
-  reasoning to follow in this file once that decision is folded in.
+- **Target pilot**: the same real, tenant-isolated backend already deployed and
+  tested today (see the Tenancy model subsection immediately below) — a new pilot
+  institution is onboarded onto this shared platform via `POST
+  /api/organisations/signup`, not stood up as a separate deployment.
+
+### Tenancy model: shared infrastructure with row-level isolation
+
+**This section documents a real, deliberate architecture decision, not a gap being
+smoothed over.** This plan originally specified a dedicated database and
+application instance per pilot institution, given the sensitivity of the data
+involved. What was actually built during the multi-tenancy work is different:
+**shared infrastructure — one Postgres instance, one backend deployment — with
+tenant isolation enforced at the row level and the API query layer instead of by
+physical separation.** Every tenant-scoped table carries an `organisation_id`
+foreign key, and every query that touches tenant data filters by the caller's own
+`organisation_id`, with no exceptions; this is verified by dedicated cross-tenant
+isolation tests that create a second organisation and confirm zero rows leak
+across the boundary (`backend/tests/multi_tenant_isolation.rs`), not just a schema
+column that happens to exist. Role-based access control (`staff` /
+`department_reviewer` / `compliance_admin`) sits on top of that same isolation
+boundary — see docs/ARCHITECTURE.md and docs/SECURITY_PRIVACY.md.
+
+**Why this was a reasonable choice for this stage**: cost (one instance to
+provision, patch, and pay for instead of one per institution, which matters
+directly for a Render free-tier demo and for a first pilot before any revenue
+exists), operational simplicity (one deployment to monitor, migrate, and reason
+about, not N independently-drifting ones), and a materially faster path to a
+first real pilot — a new institution can self-register and start using the
+product immediately, rather than waiting on dedicated infrastructure to be
+provisioned for them first.
+
+**The real tradeoff, stated plainly rather than glossed over**: a shared database
+is a genuinely different risk posture than physical separation. Row-level
+isolation depends on every query in the application correctly applying its
+`organisation_id` filter — a real, tested guarantee today, but one that holds by
+correct application code, not by the database or network topology making
+cross-tenant access physically impossible the way separate instances would. A
+compromise of the shared database, or a future query added without that filter,
+is a cross-tenant exposure in a way that a dedicated-instance model would contain
+to a single institution by construction. A security-conscious pilot institution —
+particularly a bank or a government ministry, exactly this product's target
+market — may reasonably ask about this directly during a security review, and the
+honest answer is the one above, not a claim that shared infrastructure is
+equivalent to physical separation.
+
+**This is not presented as the final, permanent architecture.** Dedicated-instance
+isolation per institution remains a valid, real future path once there is actual
+institutional demand that justifies its added operational cost (separate
+provisioning, separate monitoring, separate patching per institution) — the kind
+of demand a single pilot doesn't yet generate, but a second or third paying
+institution, or one specific institution's own security requirement, plausibly
+would. This is a decision made and documented for the current stage, not a
+statement that it will never change.
 
 ## Hosting provider
 

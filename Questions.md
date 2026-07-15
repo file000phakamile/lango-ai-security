@@ -1830,3 +1830,52 @@ instruction not to just delete the risk framing wholesale) — grepped
 `backend/src/routes/scan.rs` and `docs/ARCHITECTURE.md`'s AI layer row: the AI
 Gateway pipeline stage is still a labeled no-op string, not a live call, unchanged
 by any of Parts 1-3 of the previous task.
+
+## 30. Docs-accuracy pass, Part 2 — the shared-vs-dedicated tenancy question,
+resolved explicitly
+
+DEPLOYMENT_PLAN.md originally specified a dedicated database and application
+instance per pilot institution, given the sensitivity of the data. What the
+multi-tenancy work in the prior "product depth" task actually built is different:
+shared infrastructure — one Postgres instance, one backend deployment — with
+tenant isolation enforced at the row level (`organisation_id` on every tenant-scoped
+table, filtered on every query) instead of by physical separation. This had never
+been explicitly reconciled against the original plan in writing — the task
+correctly identified this as "a real, different architecture decision, not just a
+documentation gap," and asked for it to be resolved explicitly rather than picked
+silently.
+
+Added a "Tenancy model: shared infrastructure with row-level isolation" subsection
+directly under DEPLOYMENT_PLAN.md's Deployment environment heading, per the task's
+explicit placement instruction. It states, in order: what was actually built
+(shared Postgres + shared backend deployment, row-level isolation enforced at the
+query layer, verified by the real cross-tenant isolation tests in
+`backend/tests/multi_tenant_isolation.rs`); why this was a reasonable choice for
+this stage (cost — one instance instead of one per institution, which matters
+directly given this is still a free-tier demo with no pilot revenue yet;
+operational simplicity — one deployment to monitor and migrate, not N
+independently-drifting ones; and a materially faster path to a first real pilot,
+since a new institution can self-register today rather than waiting on dedicated
+infrastructure); the real tradeoff against the originally-planned dedicated-instance
+model (a shared database is a genuinely different risk posture than physical
+separation — row-level isolation depends on every query correctly applying its
+tenant filter, a real and tested guarantee today but not the same physical
+guarantee dedicated instances provide, and a security-conscious bank or government
+ministry may reasonably ask about this directly during a security review); and
+that dedicated-instance isolation remains a valid future path once real
+institutional demand justifies the added operational cost, not a claim that the
+shared model is the final, permanent architecture.
+
+**Judgment call**: the task didn't specify exactly how much of the "why this was
+reasonable" argument to make versus simply stating the decision and tradeoff. Chose
+to make the case for shared infrastructure explicitly (cost, simplicity, speed to
+first pilot) rather than only stating the tradeoff neutrally, because the task's
+own framing ("why this was a reasonable choice for this stage") asked for that
+reasoning to be included, not just the fact of the decision — while still being
+equally explicit about the downside, per the instruction not to present the
+current model as obviously correct or final.
+
+This subsection is also cross-referenced from BUSINESS_MODEL.md's Adoption risks
+(Part 1, previous commit) and PITCH_DECK_CONTENT.md's slide 10 Ask (Part 1), so the
+tenancy question reads consistently as one real, stated decision across all three
+docs rather than being explained differently in each.
