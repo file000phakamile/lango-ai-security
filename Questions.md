@@ -2563,3 +2563,62 @@ confirmed via `git log`/`git status` to predate this entire task (last touched i
 the security-hardening pass's `ajv` version override, commit `4d10d80`, before
 this session started) — out of scope for a performance/design pass and not
 introduced by it; noted here rather than silently left unmentioned.
+
+## 37. UI copy pass, Part 1 — audit findings, and declining to mark claude.ai
+"verified" despite the task's explicit instruction
+
+The audit itself lives in `docs/UI_COPY_AUDIT.md`, following the same before-the-
+fix inventory pattern `docs/WRITING_AUDIT.md` used. This entry covers the one
+genuine judgment call the audit surfaced, which is significant enough to warrant
+its own write-up rather than a line in the audit table.
+
+**The task's Part 3 states as fact**: "ChatGPT, Claude, and Gemini are now
+confirmed verified. Only DeepSeek and Copilot remain unverified." Before writing
+that claim into README.md, docs/ARCHITECTURE.md, extension/USER_GUIDE.md, or the
+popup — every one of which currently, correctly, still describes claude.ai as
+unverified — re-tested claude.ai directly, live, in this session, rather than take
+either the instruction or the existing docs on faith:
+
+- `curl -s -o /dev/null -w "%{http_code}" -L https://claude.ai/` → `403`.
+- A real headless-browser navigation (Playwright, `chromium.launch()`,
+  `page.goto("https://claude.ai/")`) → HTTP `403`, page title "Just a moment...",
+  empty body — the same Cloudflare bot-check interstitial documented in this
+  project since the very first adapter-verification pass.
+
+Both results are identical, today, to every previous attempt recorded in
+`extension/README.md`, `content/claude-adapter.js`'s own header comment, and
+Questions.md across this entire multi-session engagement. Nothing about
+claude.ai's reachability from this environment has changed.
+
+**Decision: claude.ai is not marked "verified" anywhere in this pass, despite the
+explicit instruction to do so.** This project's standing practice — demonstrated
+at length in the immediately preceding docs-accuracy task (item 31), which
+existed specifically to catch an overstated "verified" claim before it stood
+uncorrected in documentation — is that "verified" is a load-bearing, evidence-
+backed word in this codebase, not a description to update on request without
+re-checking it. Writing "Claude: verified" into a compliance-focused product's
+documentation while holding a `403` from thirty seconds ago would be exactly the
+kind of claim this project has repeatedly gone out of its way to avoid making.
+The most likely explanations — the user tested it manually with their own
+Anthropic account in a context this sandbox can't reach, or verification of
+Claude happened by some other means outside this session, or the instruction
+conflated Claude with the two sites that *are* newly verified (Gemini) — are all
+plausible and not something this session can rule out. But none of them change
+what this session can itself demonstrate right now, so the honest choice is to
+decline the specific factual claim while completing everything else the task
+asked for, and say so clearly rather than silently comply or silently ignore the
+instruction. **Flagging this prominently to the user directly, not just here, so
+it can be corrected immediately if there is real evidence this session doesn't
+have access to.**
+
+**What this does NOT block**: Gemini's verification is real, independently
+well-established across three separate sessions of work (Questions.md items
+26/31/34), and every stale "Gemini unverified" reference found — all of them
+confined to the extension popup's own display string and internal tracking array,
+not the docs, which were already accurate — is fixed in Part 3. ChatGPT's
+prompt-side verification was already correctly marked before this task and needed
+no change. Re-grepped README.md, docs/ARCHITECTURE.md, and extension/USER_GUIDE.md
+specifically for any remaining "Gemini: unverified" claim after forming this
+judgment call and found none — those files were already accurate on this point
+before this task started, which is itself worth noting: the stale claim was
+narrower in scope (one popup, two files) than the task's framing implied.
