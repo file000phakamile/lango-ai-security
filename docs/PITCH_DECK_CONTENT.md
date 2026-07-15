@@ -72,11 +72,12 @@ the rest of this docs set — kept consistent with them rather than restated loo
 
 ## 9. Roadmap
 
-**30 / 60 / 90-day path from a real, deployed v0.1 to a validated pilot**
+**30 / 60 / 90-day path from a real, deployed, hardened v0.1 to a validated pilot**
 
-- Day 30: pilot institution and department confirmed, consent signed off, environment
-  hardened toward tenant isolation (backend already built and deployed — Rust/Axum on
-  Render, real PostgreSQL — this is about hardening it for a pilot, not building it)
+- Day 30: pilot institution and department confirmed, consent signed off, institution
+  onboarded onto the platform (multi-tenant isolation, rate limiting, and a basic
+  internal security pass are already built and tested — this is about onboarding a
+  real institution onto existing infrastructure, not building that infrastructure)
 - Day 60: midpoint review — redaction accuracy and fairness measured on real pilot traffic
 - Day 90: full pilot cohort onboarded, go/no-go decision on scale-out
 
@@ -87,6 +88,10 @@ the rest of this docs set — kept consistent with them rather than restated loo
 - Phakamile Mlala (Team Leader, Electronic Engineering, NUST Bulawayo) & Vanessa Moyo
   (Researcher, Product Design)
 - Built with Claude and Claude Code for drafting and implementation — reviewed by the team throughout
-- Ask: a pilot institution partner, and support hardening the now-live v0.1 backend
-  (multi-tenant isolation, a live AI provider connection, rate limiting) for real
-  institutional traffic
+- Ask: a real pilot institution partner — multi-tenant isolation, rate limiting, and
+  a basic internal security pass are already built and tested, not the ask anymore
+- Also need: input from a real institutional security/compliance reviewer on the
+  shared-vs-dedicated-instance tenancy tradeoff (see docs/DEPLOYMENT_PLAN.md) —
+  a decision worth making with an actual institutional stakeholder, not in isolation
+  — plus support standing up a live AI provider connection and a formal penetration
+  test ahead of real institutional traffic

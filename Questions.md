@@ -1748,3 +1748,85 @@ compile cleanly. `npm run build`: succeeds cleanly after the `overrides` change.
 No backend or frontend functionality changed by this task's own new code beyond
 the rate limit itself and the dependency version bumps — nothing in this part
 touches detection logic, the dashboard, or the extension.
+
+## 29. Docs-accuracy pass, Part 1 — sweeping BUSINESS_MODEL.md, DEPLOYMENT_PLAN.md,
+and PITCH_DECK_CONTENT.md for stale claims
+
+This task was triggered by re-reading these three docs against what the previous
+task (response scanning, observability, security hardening — see
+[item 28](#28-basic-security-hardening-pass-response-scanning--observability--hardening))
+actually built. Re-read all three in full against docs/ARCHITECTURE.md for the real
+current state, per the task's instructions. Fixed the three claims named explicitly:
+
+- BUSINESS_MODEL.md's Adoption risks bullet listed multi-tenant isolation, a live
+  AI provider connection, rate limiting, and production security review together
+  as risks still to be built. Rewrote to separate what's actually done (multi-tenant
+  isolation, tested; rate limiting, tested; a basic internal security pass) from
+  what genuinely isn't (a live AI provider connection — confirmed still accurate by
+  checking `backend/src/routes/scan.rs` and docs/ARCHITECTURE.md's AI layer row
+  directly, not assumed; a formal penetration test). Kept the risk framing rather
+  than deleting it, per the task's explicit instruction — the remaining gaps are
+  real and stated as such.
+- PITCH_DECK_CONTENT.md's slide 9 (Roadmap) described "environment hardened toward
+  tenant isolation" as Day-30 future work; rewrote to state multi-tenant isolation,
+  rate limiting, and the basic security pass are already built and tested, and Day
+  30 is about onboarding a real institution onto that existing platform.
+- PITCH_DECK_CONTENT.md's slide 10 (Team + Ask) asked for help "hardening... for
+  real institutional traffic" listing multi-tenant isolation and rate limiting as
+  part of the ask; rewrote the ask to a real pilot institution partner plus what
+  genuinely remains (a live AI provider connection, a formal pentest), moving the
+  tenancy-architecture question (Part 2, below) into its own line since that's a
+  decision worth an institutional stakeholder's input, not infrastructure to build.
+- DEPLOYMENT_PLAN.md's target pilot environment description under Deployment
+  environment described a dedicated-instance-per-institution model as the plan,
+  when what was actually built is different (shared infrastructure, row-level
+  isolation) — this is Part 2's subject specifically, see the next item; this file
+  is left with a pointer to that decision rather than the fully rewritten section,
+  to keep this commit's diff scoped to Part 1's own claims and Part 2's to its own.
+
+**Also found and fixed three more of the same kind while sweeping, as instructed**
+("search for any others of the same kind while you are in there"):
+
+- DEPLOYMENT_PLAN.md's own intro paragraph stated the demo backend was "not the
+  tenant-isolated, hardened system" the pilot plan describes — no longer true;
+  multi-tenancy and a basic hardening pass are now part of the real, deployed demo
+  backend itself, not a future-pilot-only concept. Rewrote to state plainly what's
+  now shared between the demo and the pilot plan, and what genuinely still isn't
+  (a live AI connection, a formal pentest, a specific institution's own onboarding).
+- DEPLOYMENT_PLAN.md's Monitoring section's "Demo" bullet said "nothing beyond
+  Render's own free-tier tooling; no external uptime or alerting service is wired
+  up" — stale since the previous task's Part 2 added structured logging, an
+  internal error log + System Health view, and a GitHub Actions uptime check with
+  a real failure-email path. Updated to describe what's real now, while keeping
+  the honest caveat that GitHub's 60-day inactivity auto-disable means a real
+  pilot would still want an independent monitoring service.
+- DEPLOYMENT_PLAN.md's Scale pathway step 3 said expanding to a second institution
+  means "replicate the tenant-isolated deployment" — implies the originally-planned
+  dedicated-instance model, which is not what was actually built. Corrected to
+  describe onboarding via the real `POST /api/organisations/signup` endpoint onto
+  the same shared platform instead, with a pointer to Part 2's tenancy decision for
+  when a dedicated instance would actually make sense.
+- DEPLOYMENT_PLAN.md's 30-day milestone said "environment provisioned" in a way
+  that reads as building tenant isolation from scratch for each pilot; reworded to
+  make clear this is onboarding onto already-built, already-tested infrastructure.
+
+**Judgment call, documented as instructed**: PITCH_DECK_CONTENT.md's slide 7
+("Security & Monitoring Evidence") states "Prompt-injection, rate-limiting, and
+DoS events logged and reviewable" — this is arguably adjacent to this task's
+concern (it references rate limiting), but it's describing the Drift & Security
+dashboard view's Security Events feed, which remains seeded/illustrative rather
+than fed by a live detector (a separate, already-documented honesty point in
+docs/ARCHITECTURE.md, unrelated to whether the actual `tower_governor` rate-limit
+middleware exists as real infrastructure, which it does). This slide overstates a
+different thing than the pattern this task was asked to fix (it doesn't claim
+rate limiting is *unbuilt* — the opposite class of problem, implying an
+illustrative dashboard feed is live) and touching it wasn't part of what the task
+named. Left as-is rather than expanding scope; noted here in case it's worth a
+separate, deliberate pass later.
+
+Confirmed, specifically, that "no live AI provider connection" is still accurate
+before leaving it stated as a real remaining risk (per the task's explicit
+instruction not to just delete the risk framing wholesale) — grepped
+`backend/src/routes/scan.rs` and `docs/ARCHITECTURE.md`'s AI layer row: the AI
+Gateway pipeline stage is still a labeled no-op string, not a live call, unchanged
+by any of Parts 1-3 of the previous task.

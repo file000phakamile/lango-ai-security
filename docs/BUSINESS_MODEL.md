@@ -97,11 +97,28 @@ Office, Legal Affairs) and other institution types.
 - **Trust gap**: asking a regulated institution to route AI traffic through a
   third-party gateway is a significant trust ask; without a credible pilot and audit
   evidence, procurement stalls.
-- **Backend not yet pilot-hardened**: the Rust/Axum backend is now real, deployed
-  (Render), and verified end-to-end — this is no longer a frontend-only demo — but
-  there is real execution risk in hardening it (multi-tenant isolation, a live AI
-  provider connection, rate limiting, production security review) before any paid
-  pilot can run on real institutional traffic.
+- **Backend hardening — real, verified progress, one genuine gap remains**: the
+  Rust/Axum backend is real, deployed (Render), and verified end-to-end. Multi-tenant
+  isolation is now real and tested — every query scoped by `organisation_id`,
+  verified by dedicated cross-tenant isolation tests, not just a schema column
+  (`backend/tests/multi_tenant_isolation.rs`; see docs/ARCHITECTURE.md). A global
+  rate limit now covers every endpoint, including `/api/auth/login`, verified by
+  real tests that fire actual requests through it (see Questions.md's security
+  hardening write-up). A basic internal security-hardening pass has also been run:
+  a dependency audit (all high-severity `npm audit` findings fixed; the one
+  unresolved `cargo audit` high-severity finding is a deferred, reasoned judgment
+  call, not an oversight — see Questions.md) and a review of every credential-
+  handling path, which came back clean. **What genuinely still isn't built**: no
+  live AI provider connection exists — the AI Gateway pipeline stage remains a
+  labeled no-op, so no prompt has actually been forwarded to a real AI provider by
+  this system end-to-end — and this internal pass is explicitly not a formal
+  penetration test, which is real, deliberate future work before a security-
+  conscious institution should route production traffic through this system. The
+  current architecture is also shared infrastructure with row-level tenant
+  isolation, not a dedicated database/instance per institution — a considered
+  tradeoff for this stage, not a gap; see docs/DEPLOYMENT_PLAN.md's tenancy model
+  section, since this is exactly the kind of thing a bank's or a ministry's own
+  security reviewer would reasonably ask about directly during procurement.
 
 ## Success metrics at 30 / 60 / 90 days
 

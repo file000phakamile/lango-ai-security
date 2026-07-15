@@ -2,9 +2,16 @@
 
 This plan covers two distinct things, kept clearly separate: (1) how the **judge-facing
 demo in this repo** is deployed today, and (2) how a **real pilot deployment of the
-target production system** would be run. Do not conflate the two — the demo backend
-(when deployed) is a real, working v0.1, not the tenant-isolated, hardened system the
-pilot plan below describes.
+target production system** would be run. Do not conflate the two, but the gap between
+them is narrower than it used to be: the demo backend (when deployed) is a real,
+working v0.1 that is now genuinely multi-tenant (row-level `organisation_id`
+isolation, tested — see the Tenancy model subsection below) and has been through a
+basic internal hardening pass (a global rate limit, a dependency audit, a
+credential-handling review — see Questions.md). What the demo backend still is
+*not*: connected to a live AI provider (the AI Gateway stage remains a no-op),
+formally penetration-tested, or provisioned with a specific pilot institution's own
+tenant, consent sign-off, and onboarded users — that's what the pilot plan below
+still describes as real, not-yet-done work.
 
 ## Deployment environment
 
@@ -14,9 +21,11 @@ pilot plan below describes.
   Docker-based web service plus a managed Postgres instance, both on the free tier.
   Single environment, no staging/production split, same as the frontend.
 - **Target pilot**: a tenant-isolated environment (per docs/ARCHITECTURE.md) — the
-  pilot institution's traffic and data isolated from any other tenant, likely a
-  dedicated database and application instance per institution rather than shared
-  multi-tenancy, given the sensitivity of the data involved.
+  pilot institution's traffic and data isolated from any other tenant. **See the
+  docs-accuracy pass's Part 2 (Questions.md) for the real decision made here**:
+  what's actually built is shared infrastructure with row-level isolation, not a
+  dedicated database/instance per institution as originally sketched — full
+  reasoning to follow in this file once that decision is folded in.
 
 ## Hosting provider
 
@@ -85,13 +94,25 @@ path for the "review" state a fairness or drift alert triggers.
 ## Monitoring
 
 - **Demo**: Render's built-in service health checks (`healthCheckPath: /health` in
-  `render.yaml`) and dashboard logs/metrics — nothing beyond Render's own free-tier
-  tooling; no external uptime or alerting service is wired up.
+  `render.yaml`) and dashboard logs/metrics, plus real, added-since observability:
+  structured `tracing` logging throughout the backend, an internal `backend_errors`
+  log table with a "System Health" dashboard view (the documented stand-in for a
+  third-party error tracker, which needs an account only a human can provision —
+  see Questions.md), and a GitHub Actions scheduled workflow
+  (`.github/workflows/uptime-check.yml`) pinging `/health` every 30 minutes with
+  GitHub's own built-in failure-email as the notification path. Genuinely zero new
+  paid infrastructure — this is still free-tier, just no longer *nothing*. Known
+  limitation: GitHub auto-disables scheduled workflows after 60 days of repository
+  inactivity, so a real pilot would still want a monitoring service independent of
+  repo activity (see below).
 - **Target pilot**: the demo's Drift & Security view illustrates the intended shape —
   PSI / KL-divergence drift tracking with an alert threshold (0.20), and a security
-  event feed (prompt injection attempts, rate limiting, DoS mitigation). In production
-  these would need to page a real on-call channel (see `ALERT_WEBHOOK_URL` in
-  `.env.example`), not just render in a dashboard.
+  event feed (prompt injection attempts, rate limiting, DoS mitigation) — this feed
+  is still seeded/illustrative, not fed by a live detector (see
+  docs/ARCHITECTURE.md). In production these would need to page a real on-call
+  channel (see `ALERT_WEBHOOK_URL` in `.env.example`) and run on a monitoring
+  service independent of GitHub repository activity, not just render in a
+  dashboard or depend on a scheduled workflow staying enabled.
 
 ## Backup / recovery
 
@@ -117,16 +138,22 @@ connectivity by definition.
 2. **Additional departments, same institution** — the demo's department list (Credit
    Risk, Claims Processing, Patient Records, Bursar's Office, Legal Affairs) already
    anticipates this; expand once pilot metrics clear target.
-3. **Additional institutions, same sector** — replicate the tenant-isolated deployment
-   for a second bank or similar institution.
+3. **Additional institutions, same sector** — onboard a second bank or similar
+   institution onto the same shared platform via `POST /api/organisations/signup`
+   (no separate deployment needed, per the Tenancy model subsection above); revisit
+   the dedicated-instance question if a specific institution's own security
+   requirements or real accumulated demand justify it.
 4. **Cross-sector expansion** — hospitals, ministries — each requiring sector-specific
    entity types and pattern rules (e.g. medical record formats differ from banking ID
    formats).
 
 ## Milestones at 30 / 60 / 90 days
 
-- **30 days**: Pilot institution and department confirmed; consent and data-isolation
-  agreements signed; environment provisioned; first pilot users onboarded.
+- **30 days**: Pilot institution and department confirmed; consent agreements signed;
+  the institution onboarded as its own tenant on the already-built, already-tested
+  multi-tenant platform (`POST /api/organisations/signup` — see the Tenancy model
+  subsection above; this is institutional onboarding onto existing infrastructure,
+  not building tenant isolation from scratch); first pilot users onboarded.
 - **60 days**: Midpoint review; redaction accuracy and false-positive rate measured
   against target; at least one fairness audit cycle run; monitoring/alerting wired to
   a real channel.
