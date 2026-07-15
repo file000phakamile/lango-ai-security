@@ -2183,3 +2183,151 @@ not been touched since that baseline was recorded, confirmed via `git status`.)
 6. **Extension message-passing IPC: ~17ms** — real, but negligible
 7. **Detection engine compute: 34-757 microseconds** — confirmed genuinely
    irrelevant to real-world latency, exactly as this task's premise stated
+
+## 33. Performance pass, Step 2 — plan: each real bottleneck, two options, chosen
+fix and why
+
+Per bottleneck from item 32, at least two real options with tradeoffs, and which
+one was chosen.
+
+**Bottleneck: Render free-tier cold start (~13.85s, the single biggest number
+measured)**
+- Option A: move to a paid Render plan (no spin-down).
+- Option B: tighten the existing GitHub Actions uptime check's ping interval from
+  30 minutes to under Render's 15-minute spin-down window, so the instance rarely
+  goes fully idle.
+- Option C: do nothing beyond the honest documentation that already exists.
+- **Chosen: Option B.** Option A is a real, recurring cost decision on the user's
+  own billing — not something a one-shot dev task should decide unilaterally
+  without the user's explicit authorization, and it's already the documented
+  target-state answer (`docs/DEPLOYMENT_PLAN.md`'s hosting-provider row). Option B
+  is genuinely free (GitHub Actions minutes at this frequency are trivial), uses
+  infrastructure that already exists, and directly closes the gap the existing
+  uptime check's 30-minute interval leaves open (it was built for failure
+  *detection*, never claimed to double as keep-alive). It doesn't guarantee zero
+  cold starts (a request between two scheduled runs, or right after the workflow's
+  own outage, can still hit a cold instance), so this is documented as a
+  mitigation, not a fix — the real fix remains Option A, left as a stated future
+  step, not silently implied to be solved.
+
+**Bottleneck: sequential-but-independent DB round trips in `scan()` and
+`scan_response_handler()`**
+- Option A: run the independent queries concurrently with `tokio::try_join!`
+  (`check_consent` + `load_scan_config`; the two queries inside
+  `load_scan_config` itself; `check_consent` + the ownership `SELECT` in the
+  response-scan handler).
+- Option B: merge them into fewer, larger SQL queries (e.g., one query joining
+  users/organisations/organisation_detection_settings instead of two separate
+  round trips).
+- **Chosen: Option A.** Both preserve the exact same "always read consent/policy
+  fresh from the database, never from the JWT" guarantee this codebase documents
+  explicitly in both files — concurrency doesn't change what's read, only whether
+  the round trips overlap in wall-clock time, so there is no correctness or
+  fail-closed tradeoff here at all. Option B would save one additional round trip
+  beyond what concurrency already saves, but couples two logically distinct
+  concerns (a hard consent *gate* vs. a policy *config* load) into one query,
+  and the custom-patterns lookup returns a variable number of rows that doesn't
+  cleanly join with the single-row consent/threshold lookup without an outer join
+  and app-side dedup — added fragility for a marginal gain, especially given item
+  32's finding that DB query count doesn't clearly dominate real-world latency
+  here in the first place. Kept `check_consent`/`load_scan_config` as separate,
+  independently testable functions — only *how* they're awaited changes.
+
+**Bottleneck: DB pool has no `min_connections`, paying a fresh Postgres handshake
+after any idle period**
+- Option A: set a small `min_connections` (e.g. 2) so some connections stay warm.
+- Option B: leave it at the current lazy default (0).
+- **Chosen: Option A**, with a small number specifically. This has zero
+  correctness implications (doesn't change what's queried, only pool warmth) and
+  directly targets the exact "cold connection after idle" cost item 32 flagged as
+  plausible but not independently measurable without a live Postgres to test
+  against. A small number, not a large one, because Render's free-tier Postgres
+  has a real, limited connection cap shared with everything else touching that
+  database — holding many idle connections open 24/7 for a demo-scale workload
+  would be a worse tradeoff than the latency it saves.
+
+**Bottleneck: audit log write is synchronous on the hot path (the task's own named
+example)**
+- Option A: make the `INSERT`/`UPDATE` asynchronous — return the response to the
+  user before the write is confirmed (`tokio::spawn`, fire-and-forget).
+- Option B: keep it fully synchronous, as today.
+- **Chosen: Option B, explicitly, for both the prompt-scan `INSERT` and the
+  response-scan `UPDATE`, weighing correctness over speed exactly as this task's
+  own instructions required.** For the prompt-scan `INSERT` specifically, Option A
+  isn't just riskier, it's structurally broken: the `id` returned to the client
+  (`ScanResponse.id`) is the *database-generated* primary key from that same
+  `INSERT ... RETURNING id` — the response cannot be sent before the write
+  completes, because the response's own content comes from the write. Making it
+  "asynchronous" would require generating the id client-side or in application
+  code first (a materially bigger redesign of the response-scan correlation
+  feature from item 26/31, not a performance tweak) just to create the option to
+  skip durability, which was never a real trade worth making anyway: a crash
+  between "response sent" and "write completes" would silently drop a row from
+  the permanent audit trail this entire product's value proposition rests on. For
+  the response-scan `UPDATE` specifically, there's no such structural blocker
+  (the response body carries no server-generated id), so Option A was genuinely
+  considered here on its own merits — and rejected for the same reason stated
+  above: `response_scan_result` is explicitly called out in
+  `docs/SECURITY_PRIVACY.md`'s Auditability row as real, regulator-facing
+  evidence, and a fire-and-forget write risks silently losing exactly that
+  evidence on a crash. Consistency of principle (never trade audit durability for
+  speed on this pipeline) was judged more important than a small, narrower speed
+  win on the less-critical of the two writes.
+
+**Bottleneck: the response-scan debounce (`DEBOUNCE_MS = 4000`) — the task's own
+named example tradeoff**
+- Option A: lower the constant (e.g. to 2000ms) for a faster perceived turnaround.
+- Option B: leave the constant unchanged, and instead fix *why* the real observed
+  wait (11-15s in the item-31 live test) is longer than "streaming time + a clean
+  4000ms tail" would predict, plus address perceived slowness entirely through
+  Step 4/5's staged loading UI rather than the underlying timing.
+- **Chosen: Option B, and a real, previously-undiagnosed cause of that gap was
+  found while planning this.** Lowering `DEBOUNCE_MS` directly contradicts the
+  evidence-based reasoning that set it in the first place (a real, measured
+  mutation gap of up to 2906ms during actual Gemini streaming — see item 26);
+  going below the measured worst case risks scanning a response while it's still
+  streaming, which is a real false-negative risk (a sensitive entity appearing
+  later in the reply could go unscanned) — exactly the correctness-vs-speed
+  tradeoff this task's own instructions named explicitly and said not to make.
+  Investigating *why* the real wait exceeds the naive expectation instead: the
+  `MutationObserver` in `content/response-scanner.js` is registered on
+  `document.body` with `subtree: true`, and its callback resets the debounce
+  timer on **any** mutation anywhere on the page — not just mutations inside the
+  actual response element. A suggestion-chip fading in, a "regenerate" button
+  appearing, or any other unrelated page chrome change elsewhere on
+  `gemini.google.com` restarts the 4000ms clock just as much as new response text
+  would. This is a real, fixable imprecision, not a guess: the fix is to inspect
+  the actual `MutationRecord`s the observer already receives (currently discarded
+  — the callback ignores its own argument) and only reset the timer when at least
+  one mutation's target is contained within the found response element itself.
+  This makes the "wait until the response has genuinely stopped changing"
+  guarantee *more* accurate, not weaker — it still waits the full measured-safe
+  4000ms after the response itself last changed, it just stops being fooled by
+  unrelated page activity into waiting longer than that. Chosen because it's the
+  only option that reduces real, unnecessary wait time without touching the
+  safety-relevant constant at all.
+
+**Bottleneck: the dashboard frontend re-logs in (full Argon2 verify) on every
+single data load**
+- Option A: cache the returned JWT client-side and reuse it across calls within
+  its known validity window, re-authenticating only on a 401 or if no cached
+  token exists yet.
+- Option B: leave as-is.
+- **Chosen: Option A, and not optional given Step 5**: this task requires adding
+  live polling to the Command Center and Audit Log views. Under Option B, every
+  poll tick would trigger a fresh, deliberately-slow Argon2 password verification
+  server round trip — turning a feature meant to make the dashboard feel more
+  live into a self-inflicted new latency and backend-load problem, on a
+  cadence the task didn't ask for. This is purely a frontend change to how many
+  times `lib/lango/api-client.ts` *asks* for a token; it does not touch the
+  backend's own JWT issuance, validation, or expiry logic (`SESSION_TTL_HOURS`,
+  `auth::decode_token`) at all, and the backend still independently rejects an
+  expired or invalid token exactly as it does today — this only removes
+  redundant, wasted re-authentication calls the frontend was making for no
+  reason.
+
+**Not treated as a bottleneck needing a fix, stated explicitly**: JWT decode
+itself (already confirmed microsecond-scale, HMAC-SHA256, no realistic caching
+opportunity since the token string changes every login) and the detection engine
+(34-757µs, orders of magnitude below everything else measured). Listed here so
+it's clear these were checked and deliberately left alone, not overlooked.
