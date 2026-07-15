@@ -126,8 +126,8 @@ export function HealthDataGuard({ healthSummary }: { healthSummary: HealthSummar
         )}
         {facilityParity.length === 0 && (
           <p className="text-xs text-[#8A93A1]">
-            No facility-tagged special-category health rows yet — facility_type is an optional, caller-declared field (see
-            docs/HEALTH_MODULE.md); this chart populates once at least one /api/scan call supplies it.
+            No facility-tagged special-category health rows yet — this chart populates once
+            at least one scan supplies a facility type.
           </p>
         )}
       </Panel>

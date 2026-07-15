@@ -2756,3 +2756,51 @@ showing `user_message` and never `reason_string` to the person who typed the
 prompt).
 
 **Verification**: `npm run build` clean.
+
+## 41. UI copy pass, Part 5 — sweeping Policy Builder, Compliance Export, Pilot &
+Sandbox, and Health Data Guard
+
+Used the Part 1 audit as the checklist, per the task's instruction, rather than
+re-reading these four files cold.
+
+- **The `cargo run` mock-mode instruction — the same pattern already flagged for
+  System Health, also present in Policy Builder and Compliance Export.** Fixed
+  all three consistently: "Start the backend (`cargo run`) and reload to use
+  it." replaced with a plain statement that a live backend connection is
+  needed, with no instruction assuming the reader has a terminal and this repo
+  checked out. Judgment call on wording: didn't replace it with a *different*
+  instruction tailored to a hosted-demo reader either (e.g. "try again later")
+  — this codebase's `source: "live" | "mock"` fallback genuinely can mean
+  either "you're a developer who hasn't started the backend" or "the hosted
+  demo's backend is asleep/unreachable," and a single UI string can't correctly
+  address both audiences with a specific instruction. Stating the fact plainly
+  without prescribing an action was judged more honest than guessing which
+  audience is reading it.
+- **`health-data-guard.tsx`'s empty-state message** — the `docs/HEALTH_MODULE.md`
+  and `/api/scan` references removed, replaced with a plain description of when
+  the chart will populate.
+- **`policy-builder.tsx`'s long threshold-bound paragraph** (flagged in the Part
+  1 audit as borderline, category 5) — shortened from one ~85-word sentence to
+  one short sentence pointing at the Help tab for the full reasoning, and the
+  full reasoning (the hard-coded safe bounds, the special-category-health hard
+  rule) added to `HOW_TO_USE.md`/`help.tsx`'s Policy Builder line so the
+  pointer is genuine, not a link to nowhere.
+- **`pilot-status.tsx` and `drift-monitor.tsx`** (re-checked, not assumed clean
+  from the earlier read) — no findings. Both already describe real product
+  behavior and real metrics in plain language, with no file paths, source
+  references, or commit-message-style commentary.
+
+Re-ran the full category grep sweep (cargo run, file-path patterns, `/api/`
+references) across all five originally-flagged components plus the four newly
+swept ones after these fixes — clean.
+
+**Verification**: `npm run build` clean.
+
+## 42. UI copy pass — full-suite verification
+
+Ran the complete backend test suite after all five parts (no backend Rust code
+was touched by this entire task — this is a docs/frontend/extension content
+pass): `cargo test --lib` — 116 passed, 0 failed, unchanged from before this
+task started. `cargo test --no-run` — all 8 integration test files, including
+`multi_tenant_isolation.rs`, still compile. Zero regressions, as expected given
+the scope.

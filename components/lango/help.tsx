@@ -107,7 +107,7 @@ export function Help() {
             ["Drift & Security", "Tracks whether detection accuracy is drifting over time, plus a feed of security-relevant events."],
             ["Pilot & Sandbox", "The current pilot's scope, rollout checklist, and success metrics."],
             ["Health Data Guard", "The same monitoring scoped to health-related detections — deliberately only totals and coarse splits, never a per-condition breakdown."],
-            ["Policy Builder", "Lets a compliance admin adjust detection sensitivity within safe bounds and add organisation-specific patterns."],
+            ["Policy Builder", "Lets a compliance admin adjust detection sensitivity within safe bounds and add organisation-specific patterns. Health-related detections always follow the strictest rule regardless of this setting — that one isn't configurable by anyone."],
             ["Compliance Export", "One-click CSV/PDF export of the audit log, fairness metrics, and drift history, ready to hand to an auditor."],
             ["System Health", "A simple list of recent backend errors, so an operator can spot a problem without a separate monitoring tool."],
           ].map(([title, desc]) => (

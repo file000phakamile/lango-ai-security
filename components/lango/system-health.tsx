@@ -52,8 +52,7 @@ export function SystemHealth({ source }: { source: "live" | "mock" }) {
         <div className="flex items-start gap-2 text-sm text-[#8A6323] bg-[#8A63231A] border border-[#8A632355] rounded-md p-3">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           <p>
-            System Health needs the live backend — there is nothing real to show from mock data.
-            Start the backend (<code className="font-mono">cargo run</code>) and reload to use it.
+            System Health needs a live backend connection — there's nothing real to show from mock data.
           </p>
         </div>
       </Panel>

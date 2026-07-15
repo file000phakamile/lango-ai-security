@@ -59,9 +59,8 @@ export function PolicyBuilder({ source }: { source: "live" | "mock" }) {
         <div className="flex items-start gap-2 text-sm text-[#8A6323] bg-[#8A63231A] border border-[#8A632355] rounded-md p-3">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           <p>
-            Policy Builder needs the live backend — there is no mock-data version of this view, since a
-            fabricated threshold value would misrepresent a setting that actually controls live scans. Start
-            the backend (<code className="font-mono">cargo run</code>) and reload to use it.
+            Policy Builder needs a live backend connection — there's no mock-data version of this view, since a
+            fabricated threshold value would misrepresent a setting that actually controls live scans.
           </p>
         </div>
       </Panel>
@@ -191,7 +190,7 @@ export function PolicyBuilder({ source }: { source: "live" | "mock" }) {
           </p>
         )}
         <p className="text-xs text-[#8A93A1] mt-3 leading-relaxed">
-          {`This bound cannot be widened past ${settings.minConfidenceThreshold.toFixed(2)}-${settings.maxConfidenceThreshold.toFixed(2)} from this screen or via the API - it exists so a misconfiguration can't disable the fail-closed guarantee. The special-category health data hard rule (low-confidence health-related matches always block, never get the lenient review path) is not configurable at all, by anyone, and is not shown here as a setting because it isn't one.`}
+          {`This bound cannot be widened past ${settings.minConfidenceThreshold.toFixed(2)}-${settings.maxConfidenceThreshold.toFixed(2)}, and health-related detections always follow the strictest rule regardless of this setting — see the Help tab for why.`}
         </p>
       </Panel>
 

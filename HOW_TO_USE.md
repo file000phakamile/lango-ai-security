@@ -92,7 +92,9 @@ automatically as the shared demo account. Each sidebar view:
   someone from a small aggregate.
 - **Policy Builder** — lets a compliance admin adjust their organisation's
   detection sensitivity within safe bounds, and add organisation-specific
-  detection patterns.
+  detection patterns. Health-related detections always follow the strictest
+  rule regardless of this setting — that one isn't configurable by anyone,
+  deliberately.
 - **Compliance Export** — one-click CSV/PDF export of the audit log, fairness
   metrics, and drift history for a date range, ready to hand to an auditor.
 - **System Health** — a simple list of recent backend errors, so an operator can
