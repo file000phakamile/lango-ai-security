@@ -2804,3 +2804,93 @@ pass): `cargo test --lib` — 116 passed, 0 failed, unchanged from before this
 task started. `cargo test --no-run` — all 8 integration test files, including
 `multi_tenant_isolation.rs`, still compile. Zero regressions, as expected given
 the scope.
+
+## 43. UI copy pass 2 — "backend"/"mock data" wording in fallback states
+
+Full findings are in `docs/UI_COPY_AUDIT.md`'s "Pass 2" section. This entry
+covers the judgment calls.
+
+**Shared `UnavailableNotice` component (`atoms.tsx`), used in System Health,
+Policy Builder, and Compliance Export.** The task's own Part 3 raised this as a
+question to consider rather than an instruction; the answer was yes, worth doing
+now: all three views had the identical underlying meaning ("no live connection
+to read real data from, most likely a normal, temporary delay") written out
+separately, in slightly different words each time — exactly the drift risk a
+shared component exists to prevent. Made it a zero-prop component (no per-view
+customization) specifically so the wording can never diverge again by accident;
+the Panel title above each usage already supplies the "System Health" /
+"Policy Builder" / "Compliance Export" context, so the shared message doesn't
+need to repeat it.
+
+**`system-health.tsx`'s live-branch fetch-failure message also uses
+`UnavailableNotice`, not just the no-connection-at-all state.** These are two
+different underlying situations (never connected vs. a real live connection
+that failed one specific request) but the same honest thing to tell the user in
+both cases: something didn't load, it's probably temporary, try again. Reusing
+the same component for both was judged more consistent than maintaining two
+similar-but-not-identical messages for what a user experiences as the same
+moment. This also dropped the previous red/alarming color treatment for that
+specific state in favor of the calmer amber `UnavailableNotice` uses everywhere
+else, matching the task's "never imply something is broken... when the real,
+common cause is a normal, temporary startup delay" rule.
+
+**Not fixed, deliberately, and flagged rather than silently left**:
+`policy-builder.tsx`'s own separate `loadError` branch (`Could not load policy
+settings: {loadError}`, a raw error-message interpolation) was found while
+editing this exact file, but doesn't contain the word "backend" or "mock data"
+— it's outside this task's own explicitly grep-defined scope ("Grep... for
+every occurrence of 'mock data', 'backend unavailable', 'live backend', 'cargo
+run', or... the literal word 'backend'"). Left unchanged rather than folded in
+under a broader "seems like the same spirit" reading, to keep this pass's scope
+disciplined and match what was actually asked — but noted here as a real,
+adjacent finding a future pass may want to pick up (the same raw-error-surfacing
+pattern was already fixed for System Health specifically in the prior UI-copy
+pass, so this is a case that pass didn't reach because it wasn't the file being
+worked on at the time).
+
+**The header badge: a tooltip, not a second visible line.** The task offered
+both as options ("if the badge has room for a second, smaller line, add..."). It
+doesn't, without changing layout: this badge is a compact single-line pill
+sitting inline with the page's `<h1>` title in the header row, not a panel — an
+existing code comment on that exact div already states "this pill must keep its
+full text and shape, never get squeezed into a wrapped/broken badge." Forcing a
+two-line badge into that space would be a real layout change, not just a
+wording one, and wasn't confidently something to do without live visual
+iteration this pass didn't have room for. Extended `Badge` with an optional
+`title` prop instead — a native browser tooltip carrying "This can take up to a
+minute after a period of inactivity," reachable on hover, without touching the
+pill's shape. Verified live (not just asserted): the badge's new text ("sample
+data — connecting to the live system," longer than the old "mock data (backend
+unavailable)") causes no horizontal overflow at 375px or full width, screenshotted
+at both.
+
+**`HOW_TO_USE.md` kept in sync with `help.tsx`**, per the established discipline
+from the prior UI-copy pass — every wording change made in one was mirrored in
+the other. One small, incidental accuracy fix made while already touching the
+same sentence: `HOW_TO_USE.md`'s banner-meaning table referenced "(see Cold
+Start below)," a section heading that doesn't actually exist in the file (the
+real section is "Known Limitations that actually matter") — corrected in the
+same edit rather than left as a second, separate small bug.
+
+**Deliberately out of scope**: extension banner strings
+(`extension/content/*.js`) and `popup/popup.html`, which also say things like
+"Lango backend unreachable" in a fail-closed scan message. The task's own
+context section frames this specifically as the *dashboard's* two fallback
+behaviors; the extension's banners serve a different moment (a live scan
+attempt failing while a user is actively typing, not a dashboard view quietly
+falling back to sample data) and weren't named. Recorded in
+`docs/UI_COPY_AUDIT.md` as a flagged-not-fixed item rather than silently
+included or silently ignored.
+
+**Verification**: live browser (Playwright, headless Chromium,
+`localhost:3000` against the real production backend — CORS naturally rejects
+that from this origin, so both fallback states were genuinely exercised, not
+simulated). Confirmed: the header badge's new text and tooltip render correctly
+and stay amber (`rgb(138, 99, 35)` = `#8A6323`, confirmed via
+`getComputedStyle`, never red); System Health, Policy Builder, and Compliance
+Export all render the new shared message and contain the word "backend" nowhere
+in their rendered text (checked programmatically, not by eye alone); no
+horizontal overflow at 375px. Screenshotted at desktop and 375px widths
+(scratch-only, not committed). `cargo test --lib`: 116 passed, 0 failed —
+unchanged, since this pass touched no backend Rust code. `cargo test --no-run`:
+all 8 integration test files still compile. `npm run build`: clean.

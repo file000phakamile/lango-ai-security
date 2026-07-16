@@ -179,3 +179,116 @@ inspection of the rendered DOM, not just a grep result.
 every part of this pass. No backend Rust code was touched by this task at all,
 so this result was expected, not a surprise, and was still run and checked
 rather than assumed.
+
+---
+
+# Pass 2 — "backend"/"mock data"/dev-command wording in fallback states
+
+A follow-up, narrower pass: not about content placement this time, but about
+specific word choice in the dashboard's two fallback states (a mock-data view
+when the live connection isn't reachable, and a no-fallback empty state for the
+three views where faking a number would be actively misleading). The goal is
+accuracy and tone, not concealment — the distinction between real and sample
+data stays completely visible; only the wording describing *why* something
+isn't live changes.
+
+**Scope covered**: every file under `components/lango/`, plus `HOW_TO_USE.md`
+(not itself under `components/lango/`, but kept hand-synced with `help.tsx`
+since the prior pass — see that file's own header comment — so a wording
+change in one without the other would immediately go stale).
+
+## Method
+
+`grep -i` across `components/lango/` for `mock data`, `backend unavailable`,
+`live backend`, `cargo run`, and the bare word `backend`, then read every hit in
+its real surrounding context to separate rendered UI text from code comments,
+import statements, and TypeScript type/function names (which aren't user-facing
+and were left alone). Cross-checked `HOW_TO_USE.md` for the same terms since it
+mirrors `help.tsx`.
+
+## Findings — every instance of rendered text using "backend," "mock data," or
+a developer command
+
+| File | Line(s) | Flagged text | Category |
+|---|---|---|---|
+| `lango-dashboard.tsx` | 220 | `"mock data (backend unavailable)"` (the header status badge) | 1 — the main mock-data-fallback badge |
+| `system-health.tsx` | 55 | "System Health needs a live backend connection — there's nothing real to show from mock data." | 2 — no-fallback empty state (the exact example this task quoted) |
+| `system-health.tsx` | 51 | Panel `sub`, mock branch: "Recent backend errors and uptime status" | word choice |
+| `system-health.tsx` | 66 | Panel `sub`, live branch: "Recent backend errors, so a problem can be spotted before a user reports it" | word choice |
+| `system-health.tsx` | 80 | "Could not load recent backend errors right now. Try refreshing in a moment." (a live-branch fetch failure, not the no-connection case, but the same "we couldn't load this" shape) | word choice + consistency |
+| `system-health.tsx` | 89 | "No backend errors recorded. Everything looks healthy." (the real, live, zero-errors success state) | word choice |
+| `policy-builder.tsx` | 62 | "Policy Builder needs a live backend connection — there's no mock-data version of this view..." | 2 — no-fallback empty state |
+| `compliance-export.tsx` | 39-40 | "Compliance Export needs a live backend connection — there's nothing real to export from mock data." | 2 — no-fallback empty state |
+| `audit-log.tsx` | 59 | "Confirming/overturning this flagged row requires the live backend." (inside `ReviewSection`, shown for a flagged row when viewing mock data) | word choice |
+| `help.tsx` | 90 | "...or wait a few seconds if the backend was simply unreachable." (describing the extension's red banner) | word choice |
+| `help.tsx` | 112 | "A simple list of recent backend errors..." (describing the System Health view) | word choice |
+| `help.tsx` | 133 | "The backend can take up to a minute to wake up." | word choice |
+| `HOW_TO_USE.md` | 61 | Mirrors `help.tsx:90` | word choice |
+| `HOW_TO_USE.md` | 78 | "...seconds when connected to a real backend." | word choice |
+| `HOW_TO_USE.md` | 100 | Mirrors `help.tsx:112` | word choice |
+| `HOW_TO_USE.md` | 112, 115 | Mirrors `help.tsx:133`, plus a second "backend unreachable" mention | word choice |
+
+**Not flagged, checked and confirmed non-rendered**: `system-health.tsx`'s
+`fetchBackendErrors` (an imported function name) and `BackendErrorEntry` (an
+imported TypeScript type name) — both identifiers, never displayed as text —
+and every `//`/`///` code comment across all files above that happens to
+contain the word "backend" while describing implementation, not UI copy (e.g.
+`policy-builder.tsx`'s doc comment referencing `backend/src/detection/scan.rs`,
+already correctly left as a code comment in the prior pass).
+
+**Not in scope, deliberately**: the extension's own banner strings
+(`extension/content/*.js`, e.g. `site-adapter.js`'s "Lango backend unreachable"
+fail-closed message) and `extension/popup/popup.html`. This task's own context
+section frames the problem specifically as "this dashboard['s]... two different
+fallback behaviors" — the extension's banners are a different system serving a
+different moment (a live scan attempt failing, not a dashboard view falling
+back to sample data), and weren't named. Flagged here rather than silently
+included or silently skipped, in case a future pass wants the same treatment
+applied there too.
+
+## What was actually changed (Pass 2)
+
+- **`atoms.tsx`**: added `UnavailableNotice`, a shared, zero-prop component for
+  the "no live connection, probably temporary" state — "We couldn't load this
+  just now. If nothing has been used recently, the system may still be starting
+  up — this can take up to a minute. Please try again shortly." Never mentions
+  mock/sample data, since none of the three views that use it ever show any.
+  Extended `Badge` with an optional `title` prop (a native tooltip) for the
+  header badge's "up to a minute" detail — see Questions.md item 43 for why a
+  tooltip was chosen over a second visible line.
+- **`lango-dashboard.tsx`**: the header status badge's mock-mode text changed
+  from `"mock data (backend unavailable)"` to `"sample data — connecting to the
+  live system"`, with a new hover tooltip ("This can take up to a minute after
+  a period of inactivity."). Color unchanged — already amber (`#8A6323`), never
+  red, both before and after.
+- **`system-health.tsx`**: the no-connection empty state, the live-branch fetch-
+  failure message, and the Panel `sub` text (both branches) now use
+  `UnavailableNotice` or drop the word "backend"; the zero-errors success
+  message reworded from "No backend errors recorded" to "No errors recorded."
+- **`policy-builder.tsx`**, **`compliance-export.tsx`**: their no-connection
+  empty states now use the shared `UnavailableNotice` component instead of a
+  bespoke, separately-worded message each.
+- **`audit-log.tsx`**: `ReviewSection`'s "Confirming/overturning this flagged
+  row requires the live backend." reworded to "Confirming or overturning this
+  needs a live connection — try again once reconnected."
+- **`help.tsx`** and **`HOW_TO_USE.md`** (kept in sync): every remaining use of
+  "backend" reworded to "connection" or "system" — the red-banner explanation,
+  the System Health description, the cold-start explanation, and the Command
+  Center description's "connected to a real backend" → "connected to the live
+  system." One incidental fix alongside: `HOW_TO_USE.md`'s reference to a
+  non-existent "Cold Start" section corrected to the section's real name,
+  "Known Limitations."
+
+## Verification (Pass 2)
+
+Live browser (Playwright, `localhost:3000` against the real production
+backend — CORS naturally rejects that from this origin, genuinely exercising
+both fallback states, not simulating them): the header badge's new text and
+tooltip render correctly and stay amber, confirmed via `getComputedStyle`
+(`rgb(138, 99, 35)`, never red); System Health, Policy Builder, and Compliance
+Export each render the new shared message and were checked programmatically to
+contain the word "backend" nowhere in their rendered text; no horizontal
+overflow at 375px width despite the badge's new text being longer than the old
+one. `cargo test --lib`: 116/116, unchanged (no backend Rust code touched).
+`cargo test --no-run`: all 8 integration test files compile. `npm run build`:
+clean.

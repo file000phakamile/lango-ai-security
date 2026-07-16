@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, FileDown, Loader2 } from "lucide-react";
-import { Panel } from "./atoms";
+import { FileDown, Loader2 } from "lucide-react";
+import { Panel, UnavailableNotice } from "./atoms";
 import {
   downloadComplianceExport,
   downloadLabelledDataset,
@@ -33,13 +33,7 @@ export function ComplianceExport({ source }: { source: "live" | "mock" }) {
         title="Compliance Export"
         sub="Audit-ready CSV or PDF export for a selected date range"
       >
-        <div className="flex items-start gap-2 text-sm text-[#8A6323] bg-[#8A63231A] border border-[#8A632355] rounded-md p-3">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <p>
-            Compliance Export needs a live backend connection — there's nothing real to
-            export from mock data.
-          </p>
-        </div>
+        <UnavailableNotice />
       </Panel>
     );
   }

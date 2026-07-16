@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, Loader2, Plus, Trash2 } from "lucide-react";
-import { Panel } from "./atoms";
+import { Panel, UnavailableNotice } from "./atoms";
 import {
   createCustomPattern,
   deleteCustomPattern,
@@ -56,13 +56,7 @@ export function PolicyBuilder({ source }: { source: "live" | "mock" }) {
   if (source !== "live") {
     return (
       <Panel title="Policy Builder" sub="Confidence thresholds and organisation-specific detection patterns">
-        <div className="flex items-start gap-2 text-sm text-[#8A6323] bg-[#8A63231A] border border-[#8A632355] rounded-md p-3">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <p>
-            Policy Builder needs a live backend connection — there's no mock-data version of this view, since a
-            fabricated threshold value would misrepresent a setting that actually controls live scans.
-          </p>
-        </div>
+        <UnavailableNotice />
       </Panel>
     );
   }

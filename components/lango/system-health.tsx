@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
-import { Badge, Panel } from "./atoms";
+import { Loader2, RefreshCw } from "lucide-react";
+import { Badge, Panel, UnavailableNotice } from "./atoms";
 import { fetchBackendErrors } from "@/lib/lango/api-client";
 import type { BackendErrorEntry } from "@/lib/lango/types";
 
@@ -48,13 +48,8 @@ export function SystemHealth({ source }: { source: "live" | "mock" }) {
 
   if (source !== "live") {
     return (
-      <Panel title="System Health" sub="Recent backend errors and uptime status">
-        <div className="flex items-start gap-2 text-sm text-[#8A6323] bg-[#8A63231A] border border-[#8A632355] rounded-md p-3">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <p>
-            System Health needs a live backend connection — there's nothing real to show from mock data.
-          </p>
-        </div>
+      <Panel title="System Health" sub="Recent errors and uptime status">
+        <UnavailableNotice />
       </Panel>
     );
   }
@@ -63,7 +58,7 @@ export function SystemHealth({ source }: { source: "live" | "mock" }) {
     <div className="space-y-4">
       <Panel
         title="System Health"
-        sub="Recent backend errors, so a problem can be spotted before a user reports it"
+        sub="Recent errors, so a problem can be spotted before a user reports it"
         right={
           <button
             type="button"
@@ -76,9 +71,9 @@ export function SystemHealth({ source }: { source: "live" | "mock" }) {
         }
       >
         {loadError && (
-          <p className="text-xs text-[#A83A3A] bg-[#A83A3A1A] border border-[#A83A3A55] rounded px-3 py-2 mb-3">
-            Could not load recent backend errors right now. Try refreshing in a moment.
-          </p>
+          <div className="mb-3">
+            <UnavailableNotice />
+          </div>
         )}
         {!errors && !loadError && (
           <p className="text-sm text-[#8A93A1] flex items-center gap-2">
@@ -86,7 +81,7 @@ export function SystemHealth({ source }: { source: "live" | "mock" }) {
           </p>
         )}
         {errors && errors.length === 0 && (
-          <p className="text-sm text-[#2F7A53]">No backend errors recorded. Everything looks healthy.</p>
+          <p className="text-sm text-[#2F7A53]">No errors recorded. Everything looks healthy.</p>
         )}
         {errors && errors.length > 0 && (
           <div className="overflow-x-auto">

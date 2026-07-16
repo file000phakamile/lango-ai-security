@@ -58,7 +58,7 @@ second; you'll typically go straight to the result banner below with no
 | 🟢 Green | Nothing sensitive found — your prompt was sent unchanged. | Nothing. |
 | 🟡 Gold | A sensitive entity was redacted before sending (e.g. a national ID). | Nothing — the redacted version was sent, not your original text. |
 | 🟠 Amber | Either a low-confidence name match was redacted and sent (flagged for a compliance officer to review later), or the AI's *reply* may contain something sensitive. | Nothing for a redacted prompt. For a flagged reply: the AI's answer is shown to you in full and unchanged — review it yourself before relying on or sharing it. |
-| 🔴 Red | Blocked — a structured sensitive value (bank account, national ID, etc.) was found but Lango wasn't confident enough to redact it safely, or the backend was unreachable. | Nothing was sent. Edit your prompt and try again, or wait a few seconds and retry if the backend was unreachable (see Cold Start below). |
+| 🔴 Red | Blocked — a structured sensitive value (bank account, national ID, etc.) was found but Lango wasn't confident enough to redact it safely, or the connection was unreachable. | Nothing was sent. Edit your prompt and try again, or wait a few seconds and retry if the connection was unreachable (see Known Limitations below). |
 
 Response scanning (checking the AI's *reply*, not just your prompt) currently
 covers **chatgpt.com, claude.ai, and gemini.google.com** only, and takes longer
@@ -75,7 +75,7 @@ automatically as the shared demo account. Each sidebar view:
 - **Command Center** — a live overview: how many sessions were scanned today,
   how many were blocked or redacted, the average risk score, and any active
   monitoring alerts, plus a recent-events feed. Updates automatically every 15
-  seconds when connected to a real backend.
+  seconds when connected to the live system.
 - **Audit Log** — the full, filterable record of every scan: who, when, what was
   detected, the decision made, and why. Expand a row for full detail. A flagged
   low-confidence row can be confirmed or overturned by a reviewer directly here.
@@ -97,7 +97,7 @@ automatically as the shared demo account. Each sidebar view:
   deliberately.
 - **Compliance Export** — one-click CSV/PDF export of the audit log, fairness
   metrics, and drift history for a date range, ready to hand to an auditor.
-- **System Health** — a simple list of recent backend errors, so an operator can
+- **System Health** — a simple list of recent system errors, so an operator can
   spot a problem without a separate monitoring tool.
 
 ## Known limitations that actually matter
@@ -109,10 +109,10 @@ automatically as the shared demo account. Each sidebar view:
   site's structure but have not been confirmed against a live page — test them
   yourself before relying on them. (Full per-site detail, including exactly
   what was and wasn't tested, is in `extension/README.md`.)
-- **The backend can take up to a minute to wake up.** The live backend runs on
+- **The system can take up to a minute to wake up.** The live system runs on
   a free hosting tier that spins down after about 15 minutes of no traffic. The
   first request after an idle period can take 30-60 seconds, or may show a
-  "backend unreachable" banner if your browser gives up first. This is normal —
+  "connection unreachable" banner if your browser gives up first. This is normal —
   wait a few seconds and try again.
 - **Mobile and small screens work.** The dashboard's sidebar collapses to a
   slide-out drawer and the audit log becomes a card list below 768px width —

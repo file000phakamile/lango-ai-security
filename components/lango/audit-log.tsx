@@ -56,7 +56,7 @@ function ReviewSection({
   if (source !== "live") {
     return (
       <div className="mt-2 pt-2 border-t border-[#E1E4E8] text-[10px] text-[#8A93A1]">
-        Confirming/overturning this flagged row requires the live backend.
+        Confirming or overturning this needs a live connection — try again once reconnected.
       </div>
     );
   }

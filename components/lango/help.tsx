@@ -87,7 +87,7 @@ export function Help() {
           </div>
           <div className="flex items-start gap-3">
             <span className="w-3 h-3 rounded-full bg-[#A83A3A] mt-1 shrink-0" />
-            <p><strong className="text-[#14171C]">Red</strong> — blocked. Nothing was sent. Edit your prompt and try again, or wait a few seconds if the backend was simply unreachable.</p>
+            <p><strong className="text-[#14171C]">Red</strong> — blocked. Nothing was sent. Edit your prompt and try again, or wait a few seconds if the connection was simply unreachable.</p>
           </div>
         </div>
         <p className="text-xs text-[#8A93A1] mt-4 leading-relaxed">
@@ -109,7 +109,7 @@ export function Help() {
             ["Health Data Guard", "The same monitoring scoped to health-related detections — deliberately only totals and coarse splits, never a per-condition breakdown."],
             ["Policy Builder", "Lets a compliance admin adjust detection sensitivity within safe bounds and add organisation-specific patterns. Health-related detections always follow the strictest rule regardless of this setting — that one isn't configurable by anyone."],
             ["Compliance Export", "One-click CSV/PDF export of the audit log, fairness metrics, and drift history, ready to hand to an auditor."],
-            ["System Health", "A simple list of recent backend errors, so an operator can spot a problem without a separate monitoring tool."],
+            ["System Health", "A simple list of recent system errors, so an operator can spot a problem without a separate monitoring tool."],
           ].map(([title, desc]) => (
             <div key={title} className="flex flex-col sm:flex-row sm:gap-3">
               <dt className="font-semibold text-[#14171C] sm:w-40 shrink-0">{title}</dt>
@@ -130,7 +130,7 @@ export function Help() {
             live page.
           </li>
           <li>
-            <strong>The backend can take up to a minute to wake up.</strong> It runs
+            <strong>The system can take up to a minute to wake up.</strong> It runs
             on a free hosting tier that spins down after ~15 minutes idle. The first
             request afterward can take 30-60 seconds. This is normal.
           </li>

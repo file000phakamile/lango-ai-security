@@ -211,13 +211,20 @@ export function LangoDashboard() {
               pressure (375px etc.) — this pill must keep its full text and
               shape, never get squeezed into a wrapped/broken badge. */}
           <div className="shrink-0">
-            <Badge color={data.source === "live" ? "#2F7A53" : "#8A6323"}>
+            <Badge
+              color={data.source === "live" ? "#2F7A53" : "#8A6323"}
+              title={
+                data.source === "live"
+                  ? undefined
+                  : "This can take up to a minute after a period of inactivity."
+              }
+            >
               <Circle
                 size={7}
                 fill={data.source === "live" ? "#2F7A53" : "#8A6323"}
                 className={`mr-0.5 ${data.source === "live" ? "animate-pulse motion-reduce:animate-none" : ""}`}
               />
-              {data.source === "live" ? "system operational — live" : "mock data (backend unavailable)"}
+              {data.source === "live" ? "system operational — live" : "sample data — connecting to the live system"}
             </Badge>
           </div>
         </header>

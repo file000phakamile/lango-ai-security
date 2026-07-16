@@ -1,4 +1,4 @@
-import type { LucideIcon } from "lucide-react";
+import { AlertTriangle, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
@@ -146,13 +146,52 @@ export function DashboardSkeleton() {
   );
 }
 
-export function Badge({ color, children }: { color: string; children: ReactNode }) {
+export function Badge({
+  color,
+  children,
+  title,
+}: {
+  color: string;
+  children: ReactNode;
+  // Optional native browser tooltip — used for a short "why" detail that
+  // doesn't need to sit permanently in the badge's own visible text (e.g.
+  // the sample-data badge's "can take up to a minute" explanation). A
+  // second visible line was considered instead and rejected for this
+  // specific badge: it's a compact header pill next to the page title, not
+  // a panel, and forcing a two-line badge into that space would be a real
+  // layout change, not just a wording one — see Questions.md.
+  title?: string;
+}) {
   return (
     <span
       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono border"
       style={{ color, borderColor: `${color}55`, backgroundColor: `${color}1A` }}
+      title={title}
     >
       {children}
     </span>
+  );
+}
+
+// Wording pass: the identical "we couldn't load this right now" state used to
+// be written out separately, slightly differently worded each time, in
+// System Health, Policy Builder, and Compliance Export — all three genuinely
+// mean the same thing (no live connection to read real data from right now,
+// most likely a normal, temporary startup delay), so one shared component
+// says it once, consistently, rather than three near-duplicate strings
+// drifting apart over time. Deliberately never mentions mock/sample data —
+// none of these three views ever show mock data at all (a fabricated number
+// here would misrepresent something that actually controls behavior or
+// compliance evidence), so there is nothing to label as sample data; the
+// honest thing to say is simply that nothing loaded.
+export function UnavailableNotice() {
+  return (
+    <div className="flex items-start gap-2 text-sm text-[#8A6323] bg-[#8A63231A] border border-[#8A632355] rounded-md p-3">
+      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+      <p>
+        We couldn&apos;t load this just now. If nothing has been used recently, the system may
+        still be starting up — this can take up to a minute. Please try again shortly.
+      </p>
+    </div>
   );
 }
