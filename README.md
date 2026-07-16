@@ -1,7 +1,5 @@
 # Lango — AI Data Guard
 
-Submission for the **AI4I 2026 Challenge — Track 4 (Deployment)**.
-
 **Looking for how to actually use this, not the technical detail below?** See
 [HOW_TO_USE.md](HOW_TO_USE.md) — a plain-language guide to both the extension
 and the dashboard.
@@ -27,11 +25,6 @@ numbers, full names, medical record numbers, API keys) are detected and redacted
 reviewable audit log. Detection is deliberately **rule-based pattern matching + NER**,
 not a generative model, so every redaction decision is explainable and auditable rather
 than a black box.
-
-## Demo
-
-This repository is the **judge-facing dashboard demo** for the submission — it shows
-what an institution's compliance and security team would see once Lango is deployed.
 
 **Live demo:** https://lango-app-dusky.vercel.app
 
