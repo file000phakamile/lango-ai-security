@@ -2894,3 +2894,133 @@ horizontal overflow at 375px. Screenshotted at desktop and 375px widths
 (scratch-only, not committed). `cargo test --lib`: 116 passed, 0 failed —
 unchanged, since this pass touched no backend Rust code. `cargo test --no-run`:
 all 8 integration test files still compile. `npm run build`: clean.
+
+## 44. Pitch deck — a real, designed HTML deck, and three real bugs found and
+fixed during verification, not just claimed working
+
+Built `pitch-deck/index.html` + `styles.css` + `script.js` — ten slides, content
+sourced verbatim from `docs/PITCH_DECK_CONTENT.md`, design tokens read directly
+from the real source (grepped every hex literal across `components/lango/*.tsx`,
+read `app/layout.tsx`'s font setup, matched `docs/architecture-diagram.svg`'s
+box/arrow visual language for the pipeline slide) rather than recalled from
+memory or invented, per the task's explicit instruction.
+
+**Judgment calls**:
+
+- **Fonts loaded from Google Fonts CDN, not bundled locally.** The real app
+  sources IBM Plex Sans/Mono the same way (`next/font/google`, which itself
+  fetches from Google's font infrastructure at build time and self-hosts the
+  result — this deck can't replicate the self-hosting half without a build
+  step, which the task explicitly didn't want). A `<link>` tag is the
+  zero-build equivalent; a system sans/mono fallback stack in `styles.css`
+  covers the fully-offline case, stated as a real tradeoff rather than solved
+  perfectly — a judge without internet access on the day would see system
+  fonts, not IBM Plex, though every color and layout decision stays identical.
+- **No slide-deck library (reveal.js or similar).** Considered and rejected:
+  this deck needs "show one of ten `<section>`s at a time, disable buttons at
+  the edges, respond to arrow keys" — under 60 lines of vanilla JS. reveal.js
+  and comparable libraries solve a much bigger problem (fragment animations,
+  themes, speaker-note views, remote control, a plugin system) this deck has
+  no use for; pulling one in would be real, unjustified dependency weight for
+  a problem that plain JS already solves completely. Stated explicitly per the
+  task's "justify rather than default to a library" instruction, in
+  `script.js`'s own header comment.
+- **Left/Right arrow keys, not Up/Down.** The near-universal convention across
+  PowerPoint, Keynote, Google Slides, and reveal.js itself; Up/Down risks
+  colliding with a reader's instinct to scroll (even though this deck itself
+  never scrolls). Bound to one unambiguous mapping, not both, to avoid two
+  overlapping conventions.
+- **Slide 5's headline kept as "Switch to live demo here" (brackets dropped,
+  words unchanged), styled as a large deliberate callout rather than a plain
+  bulleted slide.** The task explicitly authorized redesigning this slide's
+  *presentation* ("design it as a clear, deliberate 'switch to the live demo
+  now' moment... do not overdesign this one") while still requiring the
+  bullets stay faithful — the brackets in the source are markdown placeholder
+  notation, not literal display punctuation intended for a slide; dropping
+  them while keeping every word was judged a typographic adaptation within
+  the task's own explicit permission for this slide, not the "paraphrased
+  into something new" the task otherwise prohibited.
+
+**Self-caught deviation, corrected before it ever left this session**: the
+first draft of slide 10 replaced the bullet listing Phakamile and Vanessa's
+names/roles with an invented `.team-grid` visual (avatar circles + cards) —
+exceeding the task's explicit scope, which authorized custom visuals only for
+slides 4, 5, 6, and 7 ("every other slide... does not need extra visual
+invention"). Caught by the automated verbatim-comparison script (below), not
+by a second read-through — the script flagged that bullet's exact text as
+missing from the rendered output, which is what led to actually re-reading
+that slide's markup and finding the substitution. Fixed by removing the
+`.team-grid`/`.team-card`/`.avatar` CSS and restoring the bullet as plain
+text, matching every other non-visual slide. A second, smaller instance of the
+same category: slide 5's demo-walkthrough line had silently dropped the
+"Walk through: " lead-in from the source bullet, keeping only the arrow-chain
+part — also caught by the same script, also fixed.
+
+**Verification, methodical, not a claim taken on faith**:
+
+1. **Every substantive claim checked programmatically against the source**,
+   not eyeballed: a whitespace- and HTML-entity-normalizing comparison script
+   checked all 39 headline/bullet strings from `docs/PITCH_DECK_CONTENT.md`
+   against the rendered `index.html` text content. First run found the two
+   deviations above; second run, after fixing both, passed all 39 with zero
+   mismatches.
+2. **Real browser navigation, both input methods**: loaded via `file://` in
+   headless Chromium (Playwright), clicked through all ten slides via the
+   on-screen Next button (counter and active-slide state checked after each
+   click), clicked back to slide 1 via Prev, confirmed both buttons correctly
+   disable at their respective boundaries, and separately confirmed
+   `ArrowRight`/`ArrowLeft` keyboard navigation lands on the expected slide.
+   Zero console errors or page errors during the full traversal, including
+   the Google Fonts CDN fetch.
+3. **Screenshotted every custom-visual slide** (1, 4, 5, 6, 7, 10) and found a
+   real, live rendering bug on first pass: slide 6's fairness bars rendered
+   as empty gray tracks with no visible gold/gray fill at all. Root cause,
+   confirmed by inspecting the actual CSS rather than guessing: `.bar-fill`
+   and `.bar-track` are `<span>` elements (inline by default), and inline
+   elements silently ignore `width`/`height` — the bar's inline
+   `style="width: 66.7%"` was simply never applied by the browser. Fixed by
+   adding `display: block` to both; re-screenshotted and confirmed the fix
+   visually, not just by re-reading the CSS.
+4. **Print export tested by actually generating a PDF and parsing it**, not
+   by reading `@media print` and assuming it worked: used Playwright's real
+   Chromium print pipeline (`page.pdf()`) after `page.emulateMedia({ media:
+   "print" })`, then parsed the resulting file with `pdfjs-dist` to get the
+   real page count and per-page text content (a byte-level regex count was
+   tried first and gave a meaningless answer — a raw PDF byte stream doesn't
+   reliably expose page boundaries to naive text search, so a real PDF parser
+   was used instead). This caught two further real, load-bearing bugs no
+   amount of reading the CSS would have surfaced:
+   - **First attempt produced a 1-page PDF, not 10.** Root cause: `.stage`'s
+     base rule sets `overflow: hidden` (correct on screen, where only one
+     slide is ever shown at a time via `display`), never overridden in
+     `@media print` — with all ten slides stacked in normal document flow at
+     `100vh` each once print mode forces them all `display: flex`, the
+     `.stage` container itself was still clipped to a single `100vh` window,
+     silently hiding slides 2-10 rather than letting them paginate. Fixed by
+     adding `overflow: visible` to `.stage` inside `@media print`.
+   - **Second attempt produced 11 pages, not 10** — a spurious blank page
+     after the real content. Root cause: the CSS rule meant to cancel the
+     page-break after the final slide used `.slide:last-child`, but
+     `.slide-footer` (a `<div>` outside the ten `<section class="slide">`
+     elements) is the actual last child of `.stage` in the DOM — no `.slide`
+     is ever literally the last child, so `:last-child` silently matched
+     nothing, and every slide including the tenth kept its
+     `page-break-after: always`. Fixed by switching to `:last-of-type`, which
+     matches the last `.slide`-typed element regardless of what non-`.slide`
+     siblings follow it.
+   - **Final, verified result**: exactly 10 pages, each one's extracted text
+     confirmed (via `pdfjs-dist`, not visual inspection alone) to correspond
+     to the correct slide in the correct order.
+5. No live backend or network dependency beyond the Google Fonts CDN fetch
+   (itself non-essential, per the fallback stack above) — confirmed by reading
+   the full HTML/CSS/JS source: no `fetch`, no API calls, no dynamic data of
+   any kind. The deck is genuinely static, matching the task's explicit
+   requirement.
+
+This session's own experience while building this deck is a real, concrete
+argument for why "verify visually, not just by reading the code" is this
+project's standing practice, not a formality: three of the deck's genuine bugs
+(the bar-fill display, the print `overflow`, the `:last-child` mismatch) would
+all have looked completely correct from reading the CSS alone, and were only
+caught by actually rendering the page and, for the print path, actually
+generating and parsing a real PDF.

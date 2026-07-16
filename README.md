@@ -6,6 +6,14 @@ Submission for the **AI4I 2026 Challenge — Track 4 (Deployment)**.
 [HOW_TO_USE.md](HOW_TO_USE.md) — a plain-language guide to both the extension
 and the dashboard.
 
+## Pitch Deck
+
+A real, ten-slide pitch deck lives at [`pitch-deck/index.html`](pitch-deck/index.html) —
+open it directly in any browser (no build step, no software required), navigate with
+the on-screen arrows or your keyboard's left/right arrow keys, and use the browser's
+own Print function (Ctrl/Cmd+P) to export a clean, correctly paginated PDF, one slide
+per page. Content is sourced verbatim from [docs/PITCH_DECK_CONTENT.md](docs/PITCH_DECK_CONTENT.md).
+
 ## Problem
 
 Employees at banks, hospitals, insurers, and government ministries are increasingly

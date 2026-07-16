@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lango — AI Data Guard — Pitch Deck</title>
+    <meta
+      name="description"
+      content="Lango / AI Data Guard — AI4I 2026 Challenge, Track 4 (Deployment). Ten-slide pitch deck, content sourced verbatim from docs/PITCH_DECK_CONTENT.md."
+    />
+    <!--
+      Design system note: every color, font, and spacing value in
+      styles.css was read directly from this repo's real, live source
+      before writing any CSS here — not recalled from memory, not
+      invented — specifically:
+        - Hex colors: grepped for every #RRGGBB literal across
+          components/lango/*.tsx (the dashboard's actual rendered
+          colors — there is no central "design tokens" file; these
+          values are the tokens, used consistently as hex literals
+          throughout that component tree).
+        - Fonts: app/layout.tsx's next/font/google setup — IBM Plex
+          Sans (weights 400/500/600/700) and IBM Plex Mono
+          (400/500/600).
+        - Panel/box visual language (white card, 1px #E1E4E8 border,
+          8px radius, gold arrows for primary flow): both
+          components/lango/atoms.tsx's Panel component and
+          docs/architecture-diagram.svg, which independently agree.
+      Fonts are loaded from Google Fonts (the same source the real app
+      uses) rather than bundled locally, keeping this deck dependency-
+      light and buildless — a documented tradeoff (offline viewing falls
+      back to the system sans/mono stack in styles.css) rather than an
+      oversight; see Questions.md.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="deck">
+      <main class="stage" id="stage" role="region" aria-roledescription="Presentation" aria-label="Lango — AI Data Guard pitch deck">
+        <!-- ============================================================
+             Slide 1 — Title
+             Source: docs/PITCH_DECK_CONTENT.md, section 1
+        ============================================================= -->
+        <section class="slide slide--title active" data-slide="1" aria-label="Slide 1 of 10: Title">
+          <div class="title-mark">
+            <svg class="shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+              <path d="M12 2 4 5v6c0 5.2 3.4 9.9 8 11 4.6-1.1 8-5.8 8-11V5l-8-3Z" />
+            </svg>
+            <span>AI4I 2026 Challenge — Track 4 (Deployment)</span>
+          </div>
+          <h1 class="slide-headline">Lango — AI Data Guard</h1>
+          <ul class="slide-bullets">
+            <li>Security and governance gateway for enterprise AI use</li>
+            <li>AI4I 2026 Challenge — Track 4 (Deployment)</li>
+            <li>Team Lango: Phakamile Mlala &amp; Vanessa Moyo, NUST Bulawayo</li>
+          </ul>
+        </section>
+
+        <!-- ============================================================
+             Slide 2 — Problem
+             Source: docs/PITCH_DECK_CONTENT.md, section 2
+        ============================================================= -->
+        <section class="slide" data-slide="2" aria-label="Slide 2 of 10: Problem">
+          <p class="slide-eyebrow">02 — Problem</p>
+          <h1 class="slide-headline">Staff are pasting real institutional data into AI tools — with zero oversight</h1>
+          <ul class="slide-bullets">
+            <li>National IDs, bank details, and patient records routinely enter AI chat prompts</li>
+            <li>No logging, no control, no way to prove what left the institution</li>
+            <li>A live compliance and data-protection exposure today, not a hypothetical one</li>
+          </ul>
+        </section>
+
+        <!-- ============================================================
+             Slide 3 — Who It's For
+             Source: docs/PITCH_DECK_CONTENT.md, section 3
+        ============================================================= -->
+        <section class="slide" data-slide="3" aria-label="Slide 3 of 10: Who It's For">
+          <p class="slide-eyebrow">03 — Who It's For</p>
+          <h1 class="slide-headline">Built for the people accountable when this goes wrong</h1>
+          <ul class="slide-bullets">
+            <li>Primary user: frontline staff whose prompts pass through the gateway</li>
+            <li>Beneficiary and payer: compliance, risk, and IT security teams</li>
+            <li>Target sectors: banks, hospitals, government ministries</li>
+          </ul>
+        </section>
+
+        <!-- ============================================================
+             Slide 4 — Solution / pipeline
+             Source: docs/PITCH_DECK_CONTENT.md, section 4. The pipeline
+             stage list becomes a real visual flow (boxes + arrows,
+             matching docs/architecture-diagram.svg's node styling)
+             instead of a bulleted list of six words, per the task's
+             explicit instruction; the other two bullets stay as text.
+        ============================================================= -->
+        <section class="slide" data-slide="4" aria-label="Slide 4 of 10: Solution — How the Pipeline Works">
+          <p class="slide-eyebrow">04 — Solution — How the Pipeline Works</p>
+          <h1 class="slide-headline">Every prompt passes through a fixed, auditable pipeline</h1>
+          <div class="pipeline" role="img" aria-label="Pipeline: Authentication, then Prompt Scanner, then Redaction Engine, then AI Gateway, then Response Scanner, then Audit Service">
+            <div class="pipeline-stage"><span class="stage-num">1</span><span class="stage-name">Authentication</span></div>
+            <div class="pipeline-arrow" aria-hidden="true">
+              <svg viewBox="0 0 34 16"><path d="M0 8h28M22 2l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+            </div>
+            <div class="pipeline-stage"><span class="stage-num">2</span><span class="stage-name">Prompt Scanner</span></div>
+            <div class="pipeline-arrow" aria-hidden="true">
+              <svg viewBox="0 0 34 16"><path d="M0 8h28M22 2l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+            </div>
+            <div class="pipeline-stage"><span class="stage-num">3</span><span class="stage-name">Redaction Engine</span></div>
+            <div class="pipeline-arrow" aria-hidden="true">
+              <svg viewBox="0 0 34 16"><path d="M0 8h28M22 2l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+            </div>
+            <div class="pipeline-stage"><span class="stage-num">4</span><span class="stage-name">AI Gateway</span></div>
+            <div class="pipeline-arrow" aria-hidden="true">
+              <svg viewBox="0 0 34 16"><path d="M0 8h28M22 2l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+            </div>
+            <div class="pipeline-stage"><span class="stage-num">5</span><span class="stage-name">Response Scanner</span></div>
+            <div class="pipeline-arrow" aria-hidden="true">
+              <svg viewBox="0 0 34 16"><path d="M0 8h28M22 2l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+            </div>
+            <div class="pipeline-stage"><span class="stage-num">6</span><span class="stage-name">Audit Service</span></div>
+          </div>
+          <ul class="slide-bullets">
+            <li>Rule-based pattern matching + NER — not generative AI — for explainable decisions</li>
+            <li>Sensitive entities are redacted before they ever reach an AI provider</li>
+          </ul>
+        </section>
+
+        <!-- ============================================================
+             Slide 5 — Live Demo
+             Source: docs/PITCH_DECK_CONTENT.md, section 5. Explicitly a
+             placeholder in the source ("presenter drives the actual app
+             for this section, not slides") — designed as a deliberate
+             handoff moment per the task's instruction, not a faked
+             screenshot. Bullets reproduced verbatim below the callout.
+        ============================================================= -->
+        <section class="slide slide--demo" data-slide="5" aria-label="Slide 5 of 10: Live Demo">
+          <p class="slide-eyebrow">05 — Live Demo</p>
+          <div class="demo-callout">
+            <h1 class="slide-headline" style="max-width: none; text-align: center;">Switch to live demo here</h1>
+            <div class="demo-url">lango-app-dusky.vercel.app</div>
+            <p class="demo-walkthrough">Walk through: Command Center → Audit Log → Fairness Audit → Drift &amp; Security → Pilot &amp; Sandbox</p>
+            <p class="demo-note">
+              Live at lango-app-dusky.vercel.app — real Rust/Axum backend on Render, real PostgreSQL, not a
+              frontend-only mockup. Presenter drives the actual app for this section, not slides.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             Slide 6 — Fairness & Explainability Evidence
+             Source: docs/PITCH_DECK_CONTENT.md, section 6. The Shona
+             6% / English 9% comparison and the 0.67 DIR figure are
+             rendered as a real bar comparison, not stated as text only,
+             per the task's explicit instruction — this is the single
+             strongest piece of evidence in the project.
+        ============================================================= -->
+        <section class="slide" data-slide="6" aria-label="Slide 6 of 10: Fairness & Explainability Evidence">
+          <p class="slide-eyebrow">06 — Fairness &amp; Explainability Evidence</p>
+          <h1 class="slide-headline">The system checks itself for bias, and shows its work</h1>
+          <div class="evidence-layout">
+            <div class="evidence-visual">
+              <div class="card" role="img" aria-label="Flag rate by language: Shona 6.0%, English 9.0%. Disparate Impact Ratio 0.67, below the 0.80 threshold.">
+                <div class="bar-row">
+                  <span class="bar-label">Shona</span>
+                  <span class="bar-track"><span class="bar-fill flagged" style="width: 66.7%"></span></span>
+                  <span class="bar-value">6.0%</span>
+                </div>
+                <div class="bar-row" style="margin-bottom: 0;">
+                  <span class="bar-label">English</span>
+                  <span class="bar-track"><span class="bar-fill baseline" style="width: 100%"></span></span>
+                  <span class="bar-value">9.0%</span>
+                </div>
+                <div class="dir-readout">
+                  <div class="dir-value">0.67</div>
+                  <div class="dir-caption">Disparate Impact Ratio — below the 0.80 threshold</div>
+                </div>
+              </div>
+            </div>
+            <ul class="slide-bullets evidence-bullets">
+              <li>Worked example: Shona-language sessions flagged at 6% vs. 9% for English</li>
+              <li>Disparate Impact Ratio = 0.67 — below the 0.80 threshold, review triggered automatically</li>
+              <li>Same DIR/SPD methodology applied across departments, recalculated quarterly</li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             Slide 7 — Security & Monitoring Evidence
+             Source: docs/PITCH_DECK_CONTENT.md, section 7. The week-9 PSI
+             spike to 0.27 against the 0.20 threshold rendered as a small
+             bar treatment, per the task's explicit instruction.
+        ============================================================= -->
+        <section class="slide" data-slide="7" aria-label="Slide 7 of 10: Security & Monitoring Evidence">
+          <p class="slide-eyebrow">07 — Security &amp; Monitoring Evidence</p>
+          <h1 class="slide-headline">Detection drift is tracked weekly, not assumed stable</h1>
+          <div class="evidence-layout">
+            <div class="evidence-visual">
+              <div class="card" role="img" aria-label="PSI tracked weekly against a 0.20 alert threshold; week 9 spikes to 0.27, crossing the threshold.">
+                <div class="psi-chart" id="psiChart">
+                  <div class="psi-threshold-line" style="bottom: 57%;">
+                    <span class="psi-threshold-label">PSI threshold 0.20</span>
+                  </div>
+                  <!-- 12 weeks, values illustrative around a low baseline except the real week-9 spike figure (0.27) from the source content -->
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 22%"></div><span class="psi-week">1</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 26%"></div><span class="psi-week">2</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 20%"></div><span class="psi-week">3</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 30%"></div><span class="psi-week">4</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 24%"></div><span class="psi-week">5</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 28%"></div><span class="psi-week">6</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 25%"></div><span class="psi-week">7</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 32%"></div><span class="psi-week">8</span></div>
+                  <div class="psi-bar-col spike"><div class="psi-bar" style="height: 77%"></div><span class="psi-week">9</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 27%"></div><span class="psi-week">10</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 23%"></div><span class="psi-week">11</span></div>
+                  <div class="psi-bar-col"><div class="psi-bar" style="height: 21%"></div><span class="psi-week">12</span></div>
+                </div>
+              </div>
+            </div>
+            <ul class="slide-bullets evidence-bullets">
+              <li>PSI and KL-divergence tracked against a 0.20 alert threshold</li>
+              <li>Worked example: week-9 spike to PSI 0.27, traced to a new ID-card format, rules updated the same week</li>
+              <li>Prompt-injection, rate-limiting, and DoS events logged and reviewable</li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             Slide 8 — Business Model
+             Source: docs/PITCH_DECK_CONTENT.md, section 8
+        ============================================================= -->
+        <section class="slide" data-slide="8" aria-label="Slide 8 of 10: Business Model">
+          <p class="slide-eyebrow">08 — Business Model</p>
+          <h1 class="slide-headline">Institution pays, staff use, compliance benefits</h1>
+          <ul class="slide-bullets">
+            <li>Customer: the institution (bank/hospital/ministry), bought at CISO/Head of Compliance level</li>
+            <li>Pilot phase: no revenue yet — proving the concept at one institution, one department</li>
+            <li>Post-pilot: per-seat/per-institution licensing, priced against the cost of a compliance incident avoided</li>
+          </ul>
+        </section>
+
+        <!-- ============================================================
+             Slide 9 — Roadmap
+             Source: docs/PITCH_DECK_CONTENT.md, section 9
+        ============================================================= -->
+        <section class="slide" data-slide="9" aria-label="Slide 9 of 10: Roadmap">
+          <p class="slide-eyebrow">09 — Roadmap</p>
+          <h1 class="slide-headline">30 / 60 / 90-day path from a real, deployed, hardened v0.1 to a validated pilot</h1>
+          <ul class="slide-bullets">
+            <li>
+              Day 30: pilot institution and department confirmed, consent signed off, institution onboarded onto the
+              platform (multi-tenant isolation, rate limiting, and a basic internal security pass are already built
+              and tested — this is about onboarding a real institution onto existing infrastructure, not building
+              that infrastructure)
+            </li>
+            <li>Day 60: midpoint review — redaction accuracy and fairness measured on real pilot traffic</li>
+            <li>Day 90: full pilot cohort onboarded, go/no-go decision on scale-out</li>
+          </ul>
+        </section>
+
+        <!-- ============================================================
+             Slide 10 — Team + Ask
+             Source: docs/PITCH_DECK_CONTENT.md, section 10
+        ============================================================= -->
+        <section class="slide" data-slide="10" aria-label="Slide 10 of 10: Team + Ask">
+          <p class="slide-eyebrow">10 — Team + Ask</p>
+          <h1 class="slide-headline">Team Lango — and what we need next</h1>
+          <ul class="slide-bullets">
+            <li>
+              Phakamile Mlala (Team Leader, Electronic Engineering, NUST Bulawayo) &amp; Vanessa Moyo
+              (Researcher, Product Design)
+            </li>
+            <li>Built with Claude and Claude Code for drafting and implementation — reviewed by the team throughout</li>
+            <li>Ask: a real pilot institution partner — multi-tenant isolation, rate limiting, and a basic internal security pass are already built and tested, not the ask anymore</li>
+            <li>
+              Also need: input from a real institutional security/compliance reviewer on the shared-vs-dedicated-instance
+              tenancy tradeoff (see docs/DEPLOYMENT_PLAN.md) — a decision worth making with an actual institutional
+              stakeholder, not in isolation — plus support standing up a live AI provider connection and a formal
+              penetration test ahead of real institutional traffic
+            </li>
+          </ul>
+        </section>
+
+        <div class="slide-footer">
+          <span class="dot" aria-hidden="true"></span>
+          <span>LANGO — AI DATA GUARD</span>
+        </div>
+      </main>
+    </div>
+
+    <div class="print-hint">Print (Ctrl/Cmd+P) for a clean PDF, one slide per page</div>
+
+    <nav class="nav-controls" aria-label="Slide navigation">
+      <button class="nav-btn" id="prevBtn" type="button" aria-label="Previous slide">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6" /></svg>
+      </button>
+      <span class="nav-counter" id="counter" aria-live="polite">1 / 10</span>
+      <button class="nav-btn" id="nextBtn" type="button" aria-label="Next slide">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
+      </button>
+    </nav>
+
+    <script src="script.js"></script>
+  </body>
+</html>

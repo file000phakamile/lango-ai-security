@@ -1,0 +1,608 @@
+/* Lango — AI Data Guard, pitch deck styles.
+   Design tokens copied directly from the real dashboard source, not
+   invented for this deck — see the header comment in index.html for
+   exactly where each value was confirmed (components/lango/*.tsx's hex
+   literals, app/layout.tsx's font setup, docs/architecture-diagram.svg's
+   node/arrow styling). Same light theme, same IBM Plex Sans/Mono pairing,
+   same gold/red/green/amber semantic colors used the same way (paired
+   with meaning, never decorative) as the dashboard itself. */
+
+:root {
+  /* Backgrounds */
+  --bg: #f6f7f8;
+  --card: #ffffff;
+  --hover-bg: #f0f1f3;
+
+  /* Text */
+  --text: #14171c;
+  --text-secondary: #5b6270;
+  --text-muted: #8a93a1;
+
+  /* Structure */
+  --border: #e1e4e8;
+  --radius: 8px;
+
+  /* Semantic accents — identical hex values to components/lango/*.tsx,
+     confirmed via a direct grep across the component tree, not recalled
+     from memory. Gold is this product's primary/brand accent (the shield
+     icon, the redacted-entity badge); red is blocked/danger; green is
+     cleared/good; amber is the distinct "flagged for review" state. */
+  --gold: #8a6323;
+  --gold-tint: #8a632314;
+  --red: #a83a3a;
+  --red-tint: #a83a3a14;
+  --green: #2f7a53;
+  --green-tint: #2f7a5314;
+  --amber: #c2660c;
+
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--text);
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------
+   Slide stage — a real 16:9 presentation slide, not a scrolling page.
+   Sized to the largest 16:9 rectangle that fits the viewport, centered,
+   so it behaves correctly on any monitor or window shape rather than
+   assuming one fixed resolution.
+------------------------------------------------------------------------ */
+
+.deck {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--text);
+}
+
+.stage {
+  position: relative;
+  width: min(100vw, 177.78vh);
+  height: min(100vh, 56.25vw);
+  background: var(--bg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.slide {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  padding: 5.5% 7%;
+  background: var(--bg);
+}
+
+.slide.active {
+  display: flex;
+}
+
+.slide-eyebrow {
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.1vw, 15px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin: 0 0 1.2%;
+}
+
+.slide-headline {
+  font-size: clamp(22px, 2.9vw, 40px);
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0 0 2.6%;
+  max-width: 92%;
+}
+
+.slide-bullets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4%;
+}
+
+.slide-bullets li {
+  position: relative;
+  padding-left: 1.6em;
+  font-size: clamp(14px, 1.5vw, 21px);
+  line-height: 1.45;
+  color: var(--text);
+  max-width: 88%;
+}
+
+.slide-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--gold);
+}
+
+.slide-bullets code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--hover-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05em 0.4em;
+}
+
+.slide-footer {
+  position: absolute;
+  left: 7%;
+  bottom: 4%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: clamp(9px, 0.85vw, 12px);
+  color: var(--text-muted);
+}
+
+.slide-footer .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+/* Slide 1 — Title */
+
+.slide--title {
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.title-mark {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 3%;
+}
+
+.title-mark .shield {
+  width: clamp(30px, 3.4vw, 46px);
+  height: clamp(30px, 3.4vw, 46px);
+  color: var(--gold);
+}
+
+.title-mark span {
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.1vw, 15px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.slide--title .slide-headline {
+  font-size: clamp(34px, 5vw, 64px);
+  font-weight: 700;
+  margin-bottom: 1.6%;
+}
+
+.slide--title .slide-subhead {
+  font-size: clamp(16px, 1.7vw, 24px);
+  color: var(--text-secondary);
+  margin: 0 0 4%;
+}
+
+/* Generic content card, reused across several slides — same white card /
+   1px #E1E4E8 border / 8px radius language as components/lango/atoms.tsx's
+   Panel component. */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.4% 1.8%;
+}
+
+/* ---------------------------------------------------------------------
+   Slide 4 — pipeline visual. Same visual grammar as
+   docs/architecture-diagram.svg: white rounded boxes, #E1E4E8 borders,
+   gold arrows for the primary request-flow direction.
+------------------------------------------------------------------------ */
+
+.pipeline {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 2% 0 3%;
+  flex: 1;
+  min-height: 0;
+}
+
+.pipeline-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1% 0.6%;
+  gap: 0.4em;
+}
+
+.pipeline-stage .stage-num {
+  font-family: var(--font-mono);
+  font-size: clamp(10px, 0.95vw, 13px);
+  color: var(--gold);
+}
+
+.pipeline-stage .stage-name {
+  font-weight: 600;
+  font-size: clamp(11px, 1.15vw, 16px);
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.pipeline-arrow {
+  flex: 0 0 auto;
+  width: clamp(18px, 2.4vw, 34px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gold);
+}
+
+.pipeline-arrow svg {
+  width: 100%;
+  height: 16px;
+}
+
+/* Slide 5 — live demo callout */
+
+.slide--demo {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.demo-callout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3%;
+}
+
+.demo-url {
+  font-family: var(--font-mono);
+  font-size: clamp(22px, 3.6vw, 48px);
+  font-weight: 600;
+  color: var(--gold);
+  background: var(--gold-tint);
+  border: 1.5px solid var(--gold);
+  border-radius: var(--radius);
+  padding: 0.5em 0.9em;
+}
+
+.demo-walkthrough {
+  font-family: var(--font-mono);
+  font-size: clamp(12px, 1.3vw, 18px);
+  color: var(--text-secondary);
+}
+
+.demo-note {
+  font-size: clamp(12px, 1.2vw, 16px);
+  color: var(--text-muted);
+  max-width: 60%;
+}
+
+/* ---------------------------------------------------------------------
+   Slides 6 & 7 — small worked-example visuals, same bar/threshold
+   language as components/lango/fairness-audit.tsx and drift-monitor.tsx
+   (horizontal bars with a distinguished color for the flagged category;
+   a dashed reference line at the alert threshold).
+------------------------------------------------------------------------ */
+
+.evidence-layout {
+  display: flex;
+  gap: 4%;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+}
+
+.evidence-visual {
+  flex: 1.1;
+  min-width: 0;
+}
+
+.evidence-bullets {
+  flex: 1;
+  min-width: 0;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12%;
+}
+
+.bar-label {
+  width: 5.5em;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.1vw, 15px);
+  color: var(--text-secondary);
+}
+
+.bar-track {
+  display: block;
+  flex: 1;
+  height: clamp(18px, 2.6vw, 30px);
+  background: var(--hover-bg);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bar-fill {
+  /* Both this and .bar-track are <span> elements (inline by default) —
+     without an explicit display here, the browser silently ignores the
+     width/height set on them, so the bar never visibly fills. Found via
+     an actual screenshot during verification, not assumed correct from
+     reading the CSS alone. */
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+}
+
+.bar-fill.flagged {
+  background: var(--gold);
+}
+
+.bar-fill.baseline {
+  background: var(--text-muted);
+}
+
+.bar-value {
+  width: 3.2em;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: clamp(12px, 1.2vw, 16px);
+  color: var(--text);
+}
+
+.dir-readout {
+  margin-top: 6%;
+  padding-top: 6%;
+  border-top: 1px solid var(--border);
+}
+
+.dir-readout .dir-value {
+  font-family: var(--font-mono);
+  font-size: clamp(24px, 3vw, 40px);
+  font-weight: 700;
+  color: var(--red);
+}
+
+.dir-readout .dir-caption {
+  font-size: clamp(11px, 1.1vw, 15px);
+  color: var(--text-muted);
+  margin-top: 0.3em;
+}
+
+/* PSI line/bar treatment, slide 7 */
+
+.psi-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3%;
+  height: clamp(120px, 20vw, 220px);
+  padding: 0 1%;
+  position: relative;
+  border-bottom: 1.5px solid var(--border);
+}
+
+.psi-threshold-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px dashed var(--red);
+}
+
+.psi-threshold-label {
+  position: absolute;
+  right: 0;
+  transform: translateY(-1.4em);
+  font-family: var(--font-mono);
+  font-size: clamp(9px, 0.85vw, 12px);
+  color: var(--red);
+}
+
+.psi-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 100%;
+}
+
+.psi-bar {
+  width: 60%;
+  border-radius: 3px 3px 0 0;
+  background: var(--text-muted);
+}
+
+.psi-bar-col.spike .psi-bar {
+  background: var(--red);
+}
+
+.psi-bar-col .psi-week {
+  font-family: var(--font-mono);
+  font-size: clamp(8px, 0.8vw, 11px);
+  color: var(--text-muted);
+}
+
+.psi-bar-col.spike .psi-week {
+  color: var(--red);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------
+   Navigation controls
+------------------------------------------------------------------------ */
+
+.nav-controls {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(20, 23, 28, 0.82);
+  border-radius: 999px;
+  padding: 8px 10px 8px 18px;
+  z-index: 10;
+  font-family: var(--font-mono);
+}
+
+.nav-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.nav-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.nav-counter {
+  color: #fff;
+  font-size: 13px;
+  min-width: 3.4em;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.print-hint {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+@media (max-width: 640px) {
+  .print-hint {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Print stylesheet — the deck's real "export" path. One slide per
+   landscape page, controls hidden, all ten slides forced visible
+   (overriding the JS-driven .active toggle, which only matters on
+   screen).
+------------------------------------------------------------------------ */
+
+@media print {
+  @page {
+    size: landscape;
+    margin: 0;
+  }
+
+  html,
+  body {
+    background: #fff;
+    overflow: visible;
+  }
+
+  .nav-controls,
+  .print-hint {
+    display: none !important;
+  }
+
+  .deck {
+    position: static;
+    display: block;
+  }
+
+  .stage {
+    box-shadow: none;
+    width: 100vw;
+    height: 100vh;
+    /* The base rule sets overflow: hidden (correct on screen, where only
+       one 100%-sized .slide is ever visible at once). In print, all ten
+       stack in normal flow at 100vh each — without overriding this to
+       visible, everything past the first slide is silently clipped
+       instead of paginating. Found by actually generating a test PDF and
+       counting real pages (1, not 10), not by reading the CSS and
+       assuming it worked. */
+    overflow: visible;
+  }
+
+  .slide {
+    display: none !important;
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  /* Every slide renders on its own printed page, regardless of which one
+     was active on screen when Print was invoked. */
+  .slide.slide {
+    display: flex !important;
+  }
+
+  /* :last-of-type, not :last-child — .slide-footer follows the ten
+     .slide sections in the DOM, so no .slide is ever literally the last
+     child of .stage; :last-child matched nothing, silently leaving every
+     slide (including the tenth) with page-break-after: always and
+     producing a spurious blank 11th printed page. Found the same way as
+     the overflow bug above: by generating a real PDF and checking the
+     actual page count, not by reading the selector and assuming it
+     matched what it looked like it should. */
+  .slide:last-of-type {
+    page-break-after: auto;
+    break-after: auto;
+  }
+}
