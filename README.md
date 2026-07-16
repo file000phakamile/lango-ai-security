@@ -1,18 +1,25 @@
 # Lango — AI Data Guard
 
-Submission for the **AI4I 2026 Challenge — Track 4 (Deployment)**.
-
 **Looking for how to actually use this, not the technical detail below?** See
 [HOW_TO_USE.md](HOW_TO_USE.md) — a plain-language guide to both the extension
 and the dashboard.
 
 ## Pitch Deck
 
-A real, ten-slide pitch deck lives at [`pitch-deck/index.html`](pitch-deck/index.html) —
-open it directly in any browser (no build step, no software required), navigate with
-the on-screen arrows or your keyboard's left/right arrow keys, and use the browser's
-own Print function (Ctrl/Cmd+P) to export a clean, correctly paginated PDF, one slide
-per page. Content is sourced verbatim from [docs/PITCH_DECK_CONTENT.md](docs/PITCH_DECK_CONTENT.md).
+A real, ten-slide pitch deck is available in two formats, both sourced verbatim from
+[docs/PITCH_DECK_CONTENT.md](docs/PITCH_DECK_CONTENT.md) and kept in sync with each
+other:
+
+- **[`pitch-deck/index.html`](pitch-deck/index.html)** — open directly in any browser
+  (no build step, no software required), navigate with the on-screen arrows or your
+  keyboard's left/right arrow keys, and use the browser's own Print function
+  (Ctrl/Cmd+P) for a clean, correctly paginated PDF, one slide per page. Use this for
+  viewing, presenting from a browser, or a quick PDF export.
+- **[`pitch-deck/Lango_Pitch_Deck.pptx`](pitch-deck/Lango_Pitch_Deck.pptx)** — a real
+  PowerPoint file (seven slides as real, editable text; three as high-resolution
+  images captured directly from the HTML deck's own verified visuals). Use this if
+  you need an editable .pptx directly, e.g. to hand to someone presenting from
+  PowerPoint rather than a browser.
 
 ## Problem
 
@@ -35,11 +42,6 @@ numbers, full names, medical record numbers, API keys) are detected and redacted
 reviewable audit log. Detection is deliberately **rule-based pattern matching + NER**,
 not a generative model, so every redaction decision is explainable and auditable rather
 than a black box.
-
-## Demo
-
-This repository is the **judge-facing dashboard demo** for the submission — it shows
-what an institution's compliance and security team would see once Lango is deployed.
 
 **Live demo:** https://lango-app-dusky.vercel.app
 

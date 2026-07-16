@@ -3024,3 +3024,112 @@ project's standing practice, not a formality: three of the deck's genuine bugs
 all have looked completely correct from reading the CSS alone, and were only
 caught by actually rendering the page and, for the print path, actually
 generating and parsing a real PDF.
+
+## 45. Pitch deck, PowerPoint version — generated from the same source, not
+hand-built, plus a real, unexpectedly-available layer of verification
+
+Built `pitch-deck/Lango_Pitch_Deck.pptx` via a new, committed
+`pitch-deck/generate_pptx.py` script, per the task's explicit instruction not
+to hand-build ten slides from scratch. Seven slides (1, 2, 3, 5, 8, 9, 10) are
+real, editable python-pptx text; slides 4, 6, and 7 are the exact same
+already-verified visuals from `index.html`, captured at 2560×1440 via a
+headless-browser screenshot and inserted as full-slide background images —
+pixel-identical to the HTML deck, not a reimplementation that could drift from
+it.
+
+**Judgment call: committed the generator script, not just the binary.** The
+task only asked for the `.pptx` file itself to live in `pitch-deck/`, but
+shipping a hand-tweaked binary with no reproducible source would recreate
+exactly the problem this whole pitch-deck effort was built to avoid — "a
+binary artifact that can silently drift out of sync with the living
+documentation" (the original task's own stated reason for choosing HTML over
+`.pptx` in the first place, see item 44). `generate_pptx.py` is that
+reproducible source: if `docs/PITCH_DECK_CONTENT.md` or the HTML deck's design
+ever changes, this script — not manual PowerPoint editing — is what
+regenerates the `.pptx` to match.
+
+**Design-token re-confirmation**: re-ran the exact same greps used for the
+HTML deck (`grep -rhoE "#[0-9A-Fa-f]{6}" components/lango/*.tsx`,
+`app/layout.tsx`'s font weights) immediately before writing this script,
+rather than reusing the earlier session's remembered values — got the
+identical results, confirming the tokens haven't drifted since item 44, and
+that re-verifying rather than trusting memory was itself the right call to
+make even when the outcome matched.
+
+**Real bug found and fixed during the screenshot-capture step, before it ever
+reached the pptx**: the first capture attempt included the HTML deck's
+on-screen nav controls (prev/next buttons, the "4/10" counter) baked into the
+image — `.nav-controls` is `position: fixed` to the *viewport*, not a child of
+`#stage`, and since `#stage` fills the entire viewport at the capture
+resolution, Playwright's element-scoped screenshot (which captures a pixel
+region, not a DOM subtree) picked up the overlapping fixed-position siblings
+too. Confirmed by actually looking at the first captured image, not assumed
+correct. Fixed by hiding `.nav-controls`/`.print-hint` via direct element
+style (not a stylesheet rule, which would have made `#nextBtn` unclickable for
+the *next* slide's navigation) immediately before each screenshot, restoring
+them immediately after.
+
+**Font substitution — real, honestly documented, and confirmed by an actual
+render, not assumed**: IBM Plex Sans/Mono are Google Fonts, not bundled with a
+standard PowerPoint installation. Checked directly on this machine
+(`C:\Windows\Fonts`) — neither is installed. `generate_pptx.py` still names
+"IBM Plex Sans"/"IBM Plex Mono" in the XML (the correct, honest choice — this
+records the *intended* font, which PowerPoint or a viewer with those fonts
+installed will render correctly, rather than silently baking in a permanent
+substitution that would misrepresent the design on a machine that does have
+them). Where a fallback is used, PowerPoint's own automatic substitution
+applies (confirmed via the real render below) — the sans/mono *pairing intent*
+(prose in sans, data/labels/URLs in mono) survives the substitution even
+though the exact typeface doesn't. Stated plainly per the task's explicit
+instruction not to silently substitute without saying so.
+
+**Two smaller, deliberate simplifications, documented rather than silently
+approximated**: (1) bullet markers are a literal `"■  "` character run
+prepended to each bullet's text, not native PowerPoint list-bullet formatting
+— native bullets don't offer the HTML deck's specific small-square/gold-color
+combination without extra low-level XML manipulation, and a plain text
+character achieves the same visual result while keeping the bullet and its
+text a single simple, editable run. (2) The HTML deck's gold-tinted callout
+background (`#8A632314`, gold at ~8% alpha via CSS `rgba`) is approximated as
+a flat, pre-blended color (`#F3ECE1`) — python-pptx solid fills don't alpha-
+blend against an arbitrary background the way CSS `rgba` does, so an exact
+value isn't available without a much more complex gradient/transparency XML
+approach for one small box; a flat approximation was judged the right tradeoff
+for a single non-substantive visual detail.
+
+**Verification — genuinely thorough, and one real capability found along the
+way that wasn't assumed available**:
+
+1. **Structural**: `python-pptx` read-back confirms exactly 10 slides, slide
+   dimensions exactly 13.333 × 7.5 inches (real 16:9 widescreen, not
+   approximated), and pictures present on exactly slides 4, 6, and 7 (asserted
+   in the verification script, not just eyeballed).
+2. **Content fidelity**: the same whitespace/entity-normalizing comparison
+   technique used for the HTML deck, adapted to extract text from
+   `python-pptx` shapes instead of HTML tags — all 29 substantive
+   headline/bullet checks against `docs/PITCH_DECK_CONTENT.md` passed with
+   zero mismatches on the first run (the HTML deck's own two content
+   deviations, already caught and fixed in item 44, were copied from the
+   corrected HTML source into this script from the start, not re-introduced).
+3. **A real visual render, not just structural inspection**: no LibreOffice is
+   available in this environment (checked, not assumed), so the original plan
+   was to rely on structural verification alone for the native slides. But a
+   check of `C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE`
+   found real PowerPoint genuinely installed on this machine — used
+   PowerShell COM automation (`New-Object -ComObject PowerPoint.Application`,
+   `Presentation.Slides.Item(n).Export(...)`) to open the actual generated
+   `.pptx` and export all 10 slides as real, actual-PowerPoint-rendered PNG
+   images, not a structural approximation of what they'd look like. Visually
+   reviewed several (the title slide, the pipeline/fairness image slides, the
+   demo callout with its native gold-bordered shape, a long-bullet text
+   slide) — all confirmed correct: right colors, right layout, right text, no
+   overflow or clipping, and the three image slides pixel-identical to the
+   already-verified HTML deck. This was a genuine capability discovery mid-
+   task, not something assumed available from the start, and is stated here
+   as more verification than the task's own fallback path ("if a way exists...
+   do that too") anticipated might be possible.
+
+**What was NOT visually confirmed**: whether the exact IBM Plex fonts render
+correctly on a machine that actually has them installed (this machine doesn't,
+so only the fallback-font rendering was seen) — a real, stated gap, not
+glossed over.
