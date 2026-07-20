@@ -6,6 +6,13 @@ pub struct Config {
     pub jwt_signing_secret: String,
     pub port: u16,
     pub cors_origin: String,
+    /// 64-hex-character (32-byte) AES-256-GCM key used to encrypt/decrypt
+    /// organisation API keys at rest (native chat feature, Phase 1). See
+    /// crypto.rs. Loaded the same way as jwt_signing_secret — required, no
+    /// silent fallback, since a missing key here would otherwise fail much
+    /// later and less clearly (at the first attempt to save or use an
+    /// organisation's OpenAI key).
+    pub api_key_encryption_key: String,
 }
 
 impl Config {
@@ -24,12 +31,15 @@ impl Config {
             .unwrap_or(8080);
         let cors_origin =
             env::var("CORS_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_string());
+        let api_key_encryption_key = env::var("API_KEY_ENCRYPTION_KEY")
+            .expect("API_KEY_ENCRYPTION_KEY must be set (see backend/.env.example) — 64 hex chars, e.g. `openssl rand -hex 32`");
 
         Self {
             database_url,
             jwt_signing_secret,
             port,
             cors_origin,
+            api_key_encryption_key,
         }
     }
 }

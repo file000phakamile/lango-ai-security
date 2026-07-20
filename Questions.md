@@ -3133,3 +3133,108 @@ way that wasn't assumed available**:
 correctly on a machine that actually has them installed (this machine doesn't,
 so only the fallback-font rendering was seen) — a real, stated gap, not
 glossed over.
+
+## 46. Native chat feature, Phase 1 (schema) — encryption choice, judgment
+calls, and test-environment setup
+
+Building the native in-app chat feature (six phases, this repo's largest
+single addition since multi-tenancy). Phase 1 only: `organization_api_keys`,
+`chat_conversations`, `chat_messages` (migration 0017), plus cross-tenant
+isolation tests. Read `detection/scan.rs`, `routes/response_scan.rs`, and
+`extension/content/response-scanner.js` in full before writing any code, per
+the task's own instruction, since later phases reuse (not reimplement) that
+pipeline.
+
+**No reversible-encryption pattern existed anywhere in this codebase before
+this feature** — confirmed by grepping the whole backend for
+`encrypt|aes|sodium|ring::|cipher|secret_key` (zero real hits) and checking
+Cargo.toml (only `argon2`, a one-way password KDF, unsuitable since an
+organisation's OpenAI key must later be decrypted to actually call OpenAI).
+Added `aes-gcm` (AES-256-GCM: authenticated encryption, a tampered
+ciphertext fails to decrypt rather than silently returning garbage) — see
+new `backend/src/crypto.rs`. A fresh random 96-bit nonce is generated per
+encryption call and stored alongside the ciphertext as one hex string
+(nonce || ciphertext), reusing the `hex` crate already in this codebase
+(same convention as `hash_prompt`) rather than adding a `base64` dependency
+for the same purpose. The 32-byte AES key itself comes from a new
+`API_KEY_ENCRYPTION_KEY` env var, loaded in `Config` the same required-no-
+fallback way `JWT_SIGNING_SECRET` already is. Five real unit tests in
+`crypto.rs` (not just "it compiles"): a genuine round-trip, proof that two
+encryptions of the same plaintext produce different ciphertext (the actual,
+well-known GCM confidentiality break this guards against), wrong-key
+failure, tampered-ciphertext failure, and the last-four masking helper.
+
+**`chat_messages` has no `organisation_id` column, deliberately** — same
+precedent already set for `sessions` in migration 0010 (see item 19 above):
+a message's organisation is always reachable via
+`chat_messages.conversation_id -> chat_conversations.organisation_id`, and
+no query touches `chat_messages` without already holding the conversation
+row (an ownership check gates every access first, mirroring
+`routes/response_scan.rs`'s existing "real WHERE clause, not just a role
+check" pattern). Adding a column nothing reads independently would just be
+another value that could silently drift out of sync with the conversation it
+belongs to.
+
+**`chat_messages.redacted_content` means something different per `role`,
+documented explicitly in the migration rather than left implicit**: for
+`role='user'` it is `scan_prompt`'s `redacted_prompt` — the user's raw
+message is never stored, matching `audit_log`'s existing zero-raw-storage
+principle exactly. For `role='assistant'` it is the AI's response text
+stored verbatim, because `scan_response` never redacts a response by
+design (see `detection/scan.rs`'s own doc comment: silently rewriting
+content already shown to the user is a materially different, more
+concerning intervention than redacting an outgoing prompt before it ever
+sends). This is also a genuine, structural difference from the browser
+extension: the extension never needs to persist a response at all, since
+it's already rendered on the third-party site's own page — this native chat
+surface is the ONLY place responsible for redisplaying that response later,
+so it has to be retrievable somewhere. There is no "raw version" of an
+assistant message distinct from what gets stored.
+
+**Chat conversation access is scoped to (organisation, user), not
+organisation-wide** — a compliance_admin cannot browse another user's live
+chat transcript through the chat feature itself. This wasn't explicitly
+specified either way; I judged it the safer, more privacy-respecting default
+for a product whose entire premise is protecting what people type, and it
+doesn't reduce compliance visibility in practice: every chat turn also
+writes a real `audit_log` row (Phase 2), which is exactly the surface
+`compliance_admin`/`department_reviewer` already use for org/department-wide
+oversight today. If per-conversation compliance review of live chat
+transcripts (not just the audit trail) turns out to be a real requirement
+later, that's an additive change, not a rework of this schema.
+
+**Cross-tenant isolation test, written one layer earlier than usual**:
+`routes::chat` and the organisation-API-key routes don't exist until
+Phase 2/3, so `tests/chat_multi_tenant_isolation.rs` exercises the exact
+org-scoped query SHAPES those future handlers will use, directly against
+the schema (four `#[sqlx::test]`s: an API key never visible to another org,
+a conversation never visible/claimable by another org's user even by UUID,
+message content never bleeding across conversations, and the
+`UNIQUE(organisation_id, provider)` constraint rejecting a second key for
+the same org+provider — locking in that rotation must `UPDATE`, not
+`INSERT`, in Phase 3). Phase 2/3 will add their own additional
+handler-level isolation tests on top of this once those routes exist, the
+same way every other route in this codebase has its own dedicated coverage
+in `multi_tenant_isolation.rs`.
+
+**Test-environment setup, logged since it's a real repeatable gotcha**: the
+scratch PostgreSQL instance a prior session (item 11) stood up on port 5433
+wasn't still running (a fresh sandbox for this session) and Docker still
+isn't installed here. Recreated it the identical way item 11 already
+established as the low-risk, reversible approach: `initdb`/`pg_ctl` from the
+already-installed PostgreSQL 18 binaries, a fresh data directory in this
+session's scratch folder (outside the repo), port 5433, matching
+`docker-compose.yml`'s `lango`/`lango_dev_password` credentials. This is
+what ran migration 0017 and every test in this session — the two existing
+native Windows Postgres services on 5432 were never touched. With it: the
+**entire existing test suite** — all 125 `cargo test --lib` unit tests plus
+every `#[sqlx::test]` integration file (multi-tenant isolation, consent,
+policy builder, response scan, review decisions, compliance export,
+observability, organisation signup) — passes with zero regressions, plus
+the 4 new chat-isolation tests. One real bug caught by actually running
+this (not by review): `conversation_belongs_to`'s first draft used
+`query_scalar::<_, Option<Uuid>>(...).fetch_one(...)` — with sqlx,
+`fetch_one` on zero matching rows returns `RowNotFound` rather than a row
+containing `NULL`, so a genuinely-absent conversation panicked the test
+instead of returning `false`. Fixed by querying `Uuid` (not
+`Option<Uuid>`) with `fetch_optional` instead.

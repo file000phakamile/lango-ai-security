@@ -35,6 +35,7 @@ fn test_config() -> Config {
         jwt_signing_secret: "test-only-secret".to_string(),
         port: 0,
         cors_origin: "http://localhost".to_string(),
+        api_key_encryption_key: "a".repeat(64),
     }
 }
 
