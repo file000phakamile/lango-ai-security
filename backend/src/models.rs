@@ -688,3 +688,28 @@ pub struct ChatConversationsResponse {
 pub struct ChatMessagesResponse {
     pub messages: Vec<ChatMessageEntry>,
 }
+
+// ---------------------------------------------------------------------------
+// Organisation API key management (Phase 3) — Policy Builder section. The
+// real key is NEVER returned once saved, only a masked confirmation — see
+// routes/organization_api_keys.rs.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct SetOpenAiKeyRequest {
+    pub api_key: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAiKeyStatusResponse {
+    pub configured: bool,
+    pub last_four: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub rotated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAiKeyUsageResponse {
+    pub days: i64,
+    pub request_count: i64,
+}

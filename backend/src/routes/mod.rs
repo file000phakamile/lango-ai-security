@@ -10,6 +10,7 @@ pub mod fairness;
 pub mod health;
 pub mod labelled_dataset;
 pub mod organisations;
+pub mod organization_api_keys;
 pub mod policy;
 pub mod response_scan;
 pub mod review_decisions;

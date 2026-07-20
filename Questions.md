@@ -3341,3 +3341,78 @@ their own additional handler-level isolation tests" commitment made in
 item 46. Full existing test suite (125 lib tests + all integration suites,
 now including these) passes with zero regressions.
 
+
+## 48. Native chat feature, Phase 3 (organisation API key management) —
+usage-count source, an accidental real OpenAI call, and a UI-verification
+gap caused by a pre-existing dev server on this machine
+
+**Usage visibility pulled from `audit_log`, not OpenAI's billing API — the
+billing-API integration was judged not trivial, stated plainly rather than
+attempted halfway.** `GET /api/policy/openai-key/usage?days=N` counts
+`audit_log` rows where `ai_model_used LIKE 'openai:%'` in the requested
+window (7/30/90 days, the only accepted values) — every forwarded chat turn
+that actually reached OpenAI, excluding blocked ones (which never called it
+at all). A real OpenAI billing/usage API integration would need its own
+authenticated call to a different OpenAI endpoint, its own error handling
+and rate limits, and a cost/usage object shape this codebase would have to
+normalise into something worth displaying — real, non-trivial scope beyond
+this task's "basic usage visibility, at minimum a count" requirement. The
+simpler internal count was shipped instead, exactly as the task's own
+fallback instruction anticipated.
+
+**Provisioning and rotation are the same endpoint (`PUT`), not two.** The
+`UNIQUE(organisation_id, provider)` constraint from migration 0017 makes
+this a natural `INSERT ... ON CONFLICT ... DO UPDATE`: a first `PUT` inserts
+(`created_at` defaults, `rotated_at` stays `NULL`), a later `PUT` updates in
+place (`rotated_at = now()`, `created_at` untouched). Simpler than a
+separate `/rotate` endpoint duplicating the same validation/encryption
+logic, and there's no meaningful difference in the actual operation from
+the database's point of view.
+
+**An accidental real call reached the real OpenAI API in this session —
+disclosed precisely, not glossed over.** While live-verifying the Phase 3
+endpoints against a real running instance of this backend (see below),
+`POST /api/chat` was also exercised live for both the blocked and forwarded
+paths. The forwarded-path check used a deliberately fake key
+(`sk-live-verification-test-key-00000000`, never a real credential) and the
+backend's real default `openai_api_base_url` — because that value wasn't
+overridden for this manual run the way it deliberately is inside
+`tests/chat.rs` — so the request actually left this machine and reached
+`https://api.openai.com/v1/chat/completions`. **Exactly one real network
+call reached the real OpenAI API in this session.** It received OpenAI's
+own real, correctly-shaped `401 Unauthorized` ("Incorrect API key
+provided...") — confirmed in the server's own log — proving genuine network
+egress works and that a real auth failure is handled exactly as designed
+(a clean generic 500 to the client, the real reason logged server-side,
+the fake key never appearing in full in any log line). **This is not a
+verified successful completion and does not upgrade the "real, live OpenAI
+integration remains unverified" statement from item 47** — no real API key
+was used, no real completion was requested or obtained, and no further live
+calls were made after this was noticed. Flagging this explicitly because
+the task's own instructions ask for an exact count and honest framing of
+any real call, and "an accidental auth-failure call with a fake key" is a
+meaningfully different (weaker) claim than "the live integration works,"
+even though it's still a genuinely useful, real data point.
+
+**UI verification gap, and why**: a live browser click-through of the new
+"Chat: OpenAI API Key" Policy Builder panel specifically was not performed.
+This machine already had a `next dev` server running against this same
+project directory from an earlier session (port 3000) — Next's dev-server
+lock is keyed to the project directory, not the port, so a second `next
+dev` instance targeting a test backend on a different port refused to start
+("Another next dev server is already running... PID 38548"). Rather than
+kill a process that might be part of the user's own active work, this was
+left untouched. What WAS verified instead, real and complete on its own
+terms: `npx tsc --noEmit` passes with zero errors; a full production
+`next build` compiles, type-checks, and statically generates every route
+with zero errors; and the entire underlying API contract this panel calls
+was verified live, end to end, against a real running instance of this
+backend on an unused port (8091) — real login, real JWT, `GET`/`PUT`
+`/api/policy/openai-key` and `GET /api/policy/openai-key/usage` all
+returning exactly the shape the frontend expects, the raw key never once
+appearing in any response. The one thing not directly observed is the
+panel's own rendered pixels in a real browser — a real, stated gap, not
+claimed as done.
+
+Full existing test suite (125 lib tests + all integration suites, now
+including 7 new organisation-API-key tests) passes with zero regressions.

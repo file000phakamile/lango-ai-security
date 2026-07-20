@@ -159,6 +159,21 @@ export interface PolicySettings {
   customPatterns: CustomPatternInfo[];
 }
 
+/// Organisation OpenAI API key status (chat feature, Phase 3) — never
+/// carries the real key, only a masked confirmation. See
+/// components/lango/policy-builder.tsx's "Chat: OpenAI API Key" section.
+export interface OpenAiKeyStatus {
+  configured: boolean;
+  lastFour: string | null;
+  createdAt: string | null;
+  rotatedAt: string | null;
+}
+
+export interface OpenAiKeyUsage {
+  days: number;
+  requestCount: number;
+}
+
 /// Health Data Guard view's summary data — see docs/HEALTH_MODULE.md.
 /// Deliberately has no per-entity-type or per-condition breakdown field;
 /// see backend/src/routes/health.rs's stigma-aware-aggregate-reporting

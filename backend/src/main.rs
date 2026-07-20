@@ -157,6 +157,17 @@ async fn main() {
             "/api/policy/custom-patterns/:id",
             delete(routes::policy::delete_custom_pattern),
         )
+        // Organisation OpenAI API key management (chat feature, Phase 3) —
+        // compliance_admin only, enforced inside each handler; see
+        // routes/organization_api_keys.rs.
+        .route(
+            "/api/policy/openai-key",
+            get(routes::organization_api_keys::get_status).put(routes::organization_api_keys::set_key),
+        )
+        .route(
+            "/api/policy/openai-key/usage",
+            get(routes::organization_api_keys::get_usage),
+        )
         // Compliance export (product-depth task, Part 2) — compliance_admin
         // only, enforced inside the handler.
         .route(

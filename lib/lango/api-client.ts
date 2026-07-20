@@ -16,6 +16,8 @@ import type {
   DriftWeek,
   EntityType,
   HealthSummary,
+  OpenAiKeyStatus,
+  OpenAiKeyUsage,
   ParityEntry,
   PolicySettings,
   SecurityEvent,
@@ -405,6 +407,46 @@ export async function deleteCustomPattern(id: string): Promise<PolicySettings> {
   return toPolicySettings(
     await authedRequest<PolicySettingsResponse>(`/api/policy/custom-patterns/${id}`, "DELETE"),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Organisation OpenAI API key management (chat feature, Phase 3) —
+// compliance_admin only, matching the policy endpoints above exactly. The
+// raw key is only ever sent up (PUT), never returned — every response here
+// carries a masked confirmation at most.
+// ---------------------------------------------------------------------------
+
+interface OpenAiKeyStatusResponse {
+  configured: boolean;
+  last_four: string | null;
+  created_at: string | null;
+  rotated_at: string | null;
+}
+
+function toOpenAiKeyStatus(r: OpenAiKeyStatusResponse): OpenAiKeyStatus {
+  return { configured: r.configured, lastFour: r.last_four, createdAt: r.created_at, rotatedAt: r.rotated_at };
+}
+
+export async function fetchOpenAiKeyStatus(): Promise<OpenAiKeyStatus> {
+  return toOpenAiKeyStatus(await authedRequest<OpenAiKeyStatusResponse>("/api/policy/openai-key", "GET"));
+}
+
+/// Provisions a new key, or rotates an existing one — same endpoint, see
+/// backend/src/routes/organization_api_keys.rs.
+export async function setOpenAiKey(apiKey: string): Promise<OpenAiKeyStatus> {
+  return toOpenAiKeyStatus(
+    await authedRequest<OpenAiKeyStatusResponse>("/api/policy/openai-key", "PUT", { api_key: apiKey }),
+  );
+}
+
+interface OpenAiKeyUsageResponse {
+  days: number;
+  request_count: number;
+}
+
+export async function fetchOpenAiKeyUsage(days: 7 | 30 | 90): Promise<OpenAiKeyUsage> {
+  const r = await authedRequest<OpenAiKeyUsageResponse>(`/api/policy/openai-key/usage?days=${days}`, "GET");
+  return { days: r.days, requestCount: r.request_count };
 }
 
 // ---------------------------------------------------------------------------
