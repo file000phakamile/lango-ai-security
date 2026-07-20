@@ -32,6 +32,7 @@ fn test_config() -> Config {
         port: 0,
         cors_origin: "http://localhost".to_string(),
         api_key_encryption_key: "a".repeat(64),
+        openai_api_base_url: "unused".to_string(),
     }
 }
 

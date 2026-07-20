@@ -13,6 +13,10 @@ pub struct Config {
     /// later and less clearly (at the first attempt to save or use an
     /// organisation's OpenAI key).
     pub api_key_encryption_key: String,
+    /// Defaults to OpenAI's real endpoint. Overridable so integration tests
+    /// can point this at a local mock HTTP server instead of making a real
+    /// network call to OpenAI — see providers/openai.rs and tests/chat.rs.
+    pub openai_api_base_url: String,
 }
 
 impl Config {
@@ -33,6 +37,8 @@ impl Config {
             env::var("CORS_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_string());
         let api_key_encryption_key = env::var("API_KEY_ENCRYPTION_KEY")
             .expect("API_KEY_ENCRYPTION_KEY must be set (see backend/.env.example) — 64 hex chars, e.g. `openssl rand -hex 32`");
+        let openai_api_base_url = env::var("OPENAI_API_BASE_URL")
+            .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string());
 
         Self {
             database_url,
@@ -40,6 +46,7 @@ impl Config {
             port,
             cors_origin,
             api_key_encryption_key,
+            openai_api_base_url,
         }
     }
 }

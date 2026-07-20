@@ -3238,3 +3238,106 @@ this (not by review): `conversation_belongs_to`'s first draft used
 containing `NULL`, so a genuinely-absent conversation panicked the test
 instead of returning `false`. Fixed by querying `Uuid` (not
 `Option<Uuid>`) with `fetch_optional` instead.
+## 47. Native chat feature, Phase 2 (provider adapter + POST /api/chat) —
+wire protocol, streaming design, and honest verification status
+
+**No live OpenAI API key was available in this environment.** Per the
+task's own instruction, everything through the provider adapter is built
+and tested against a mocked OpenAI response — `providers/openai.rs`'s unit
+tests parse a fixture matching OpenAI's real, documented SSE wire format,
+and `tests/chat.rs`'s five integration tests run the ENTIRE pipeline
+(scan → provider call → streaming → background response scan → DB writes)
+against a real local HTTP mock server (`wiremock`), not the real API. This
+required making the OpenAI endpoint URL configurable
+(`Config::openai_api_base_url`, defaults to the real endpoint, overridden
+only in tests) specifically so the mock server could stand in without
+touching `OpenAiProvider`'s actual request-building code at all — the same
+code path runs in both the test and a real deployment; only the destination
+host differs. **The real, live OpenAI integration remains unverified
+against the actual API — stated plainly, not glossed over. Zero real calls
+were made to OpenAI in this session.**
+
+**Provider trait shape — a `Receiver`, not a boxed `Stream`.** `ChatProvider::
+stream_chat` returns `tokio::sync::mpsc::Receiver<AppResult<String>>` rather
+than `Pin<Box<dyn Stream<...>>>`. A `Receiver` is already a concrete,
+`Send + 'static` type regardless of which provider produced it, so the
+trait stays object-safe without an associated-type/GAT dance — reused
+`axum::async_trait` (already a transitive dependency via axum, used
+identically in `auth.rs`'s `AuthUser` extractor) rather than adding a new
+`async-trait` crate dependency for a feature axum already provides.
+
+**Wire protocol for a successful chat response: one JSON line, a `\0` byte,
+then plain streamed text — not a custom header, not SSE.** A custom
+response header was considered first and rejected: `HeaderValue` requires
+visible ASCII, and `user_message` is built dynamically from detected entity
+names (`plain_language::describe`) — not ASCII-guaranteed in general, even
+if every entity phrase happens to be ASCII today. SSE/`EventSource` framing
+was also considered and rejected, for a reason specific to this codebase:
+`lib/lango/api-client.ts`'s existing convention is a plain `fetch` +
+manual `Authorization: Bearer` header, and native `EventSource` cannot set
+custom headers at all — it was never a fit here (confirmed via research:
+no SSE/`EventSource`/`ReadableStream` precedent exists anywhere in the
+existing frontend). The chosen protocol needs no new frontend dependency:
+`fetch` + `response.body.getReader()` + splitting on the first `\0` byte.
+
+**Streaming latency is decoupled from the response scan, concretely, not
+just in comment prose.** `stream_and_scan` (routes/chat.rs) forwards each
+provider chunk to the client as it arrives, then — the instant the provider
+stream ends — explicitly `drop`s the client-facing channel sender BEFORE
+running `scan_response` or writing anything to the database. This closes
+the client's HTTP response immediately; the response scan and its two
+writes (`audit_log` UPDATE, `chat_messages` assistant-row INSERT+UPDATE)
+happen strictly afterward, in the same background task, adding zero
+latency to what the user perceives as "the reply finished" — this is the
+concrete meaning given to the task's "in parallel with streaming" wording,
+translated for a backend that (unlike the browser extension) knows exactly
+when its own stream ends and needs no DOM-mutation debounce heuristic.
+
+**A blocked chat turn creates NO conversation and NO chat_messages row —
+only an audit_log entry.** Mirrors the extension's own "a block prevents
+sending, nothing else happens" behavior exactly. Conversation creation is
+deliberately deferred until the prompt is known to actually forward, so a
+blocked first message in a brand-new conversation never leaves an empty,
+ghost `chat_conversations` row behind.
+
+**The missing-API-key case is checked AFTER scanning, not before.** A
+misconfigured organisation (no OpenAI key provisioned yet) still gets a
+real, recorded prompt-scan decision in `audit_log` if the prompt would have
+blocked anyway — only a decision that would actually forward hits the
+missing-key check, which fails the whole request cleanly (before any
+conversation/message row is written) with a message telling a
+compliance_admin what to do, not a raw 500.
+
+**Shared SQL, not duplicated SQL.** `routes::scan::insert_audit_log_row` and
+`routes::response_scan::update_audit_log_response_scan` were extracted from
+their original inline call sites (routes/scan.rs, routes/response_scan.rs)
+into `pub(crate)` helpers, then reused verbatim by `routes::chat` — the same
+"can't silently drift between two call sites" reasoning this codebase
+already applies to `check_consent`/`load_scan_config`. Extracting these was
+a genuine (behavior-preserving) refactor of two existing files, verified
+safe by the full existing test suite still passing unchanged afterward.
+
+**`ScanConfig`/`CustomPattern` gained `#[derive(Clone)]`** — needed to move
+the org's scan configuration into the spawned background task
+(`stream_and_scan`) without re-querying the database a second time.
+`regex::Regex` is cheaply `Clone` (internally reference-counted), so this
+has no real cost. No behavior change; existing tests already cover
+`ScanConfig`'s semantics and all still pass.
+
+**Real, end-to-end integration test coverage, not just unit tests on the
+SSE parser.** `tests/chat.rs`'s five tests (against the real mock server)
+cover: a blocked prompt short-circuiting with no provider call; a clean
+prompt scanned/forwarded/streamed/stored correctly; a response that leaks a
+national ID being flagged retroactively without ever being blocked or
+altered (asserts the streamed content the user actually saw is byte-
+identical to what got flagged, matching `scan_response`'s "never modify
+what's already been shown" principle); a two-turn conversation proving the
+SECOND call to the provider receives turn one's REDACTED content, never
+the raw national ID (inspected via `wiremock`'s captured-request API, a
+real assertion on real request bytes, not an assumption); and a
+handler-level cross-tenant isolation test (org B can neither list nor read
+org A's conversation by guessing its UUID) — completing the "Phase 2/3 add
+their own additional handler-level isolation tests" commitment made in
+item 46. Full existing test suite (125 lib tests + all integration suites,
+now including these) passes with zero regressions.
+

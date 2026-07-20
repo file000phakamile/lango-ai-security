@@ -99,6 +99,64 @@ pub(crate) async fn load_scan_config(pool: &PgPool, organisation_id: Uuid) -> Ap
     Ok(ScanConfig { confidence_threshold: org_confidence_threshold, custom_patterns })
 }
 
+/// The exact `audit_log` INSERT every scan-writing route in this codebase
+/// uses — `routes::scan::scan` (below) and, since the native chat feature,
+/// `routes::chat`'s prompt-scan step. Factored out specifically so the two
+/// can't silently drift on column shape or binding order; `RETURNING id` is
+/// used by both callers to correlate a later response scan back to this
+/// exact row. `pub(crate)`, same visibility as `check_consent`/
+/// `load_scan_config` above, for the same reason.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn insert_audit_log_row(
+    pool: &PgPool,
+    session_id: Uuid,
+    user_id: Uuid,
+    department: &str,
+    language: &Option<String>,
+    entities_json: &serde_json::Value,
+    risk_score: f32,
+    decision: &str,
+    reason_string: &str,
+    ai_model_used: &str,
+    response_scan_result: &str,
+    original_prompt_hash: &str,
+    redacted_prompt_for_storage: &Option<String>,
+    sensitivity_class: &str,
+    facility_type: &Option<String>,
+    organisation_id: Uuid,
+) -> AppResult<Uuid> {
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO audit_log (
+            session_id, user_id, department, language, "timestamp",
+            entities_detected, risk_score, decision, reason_string,
+            ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt,
+            sensitivity_class, facility_type, organisation_id
+        )
+        VALUES ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        RETURNING id
+        "#,
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .bind(department)
+    .bind(language)
+    .bind(entities_json)
+    .bind(risk_score)
+    .bind(decision)
+    .bind(reason_string)
+    .bind(ai_model_used)
+    .bind(response_scan_result)
+    .bind(original_prompt_hash)
+    .bind(redacted_prompt_for_storage)
+    .bind(sensitivity_class)
+    .bind(facility_type)
+    .bind(organisation_id)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
+
 pub async fn scan(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
@@ -146,34 +204,24 @@ pub async fn scan(
     // RETURNING id: response scanning (product-depth task Part 1) needs a
     // way to correlate the AI's reply, once it stabilises, back to this
     // exact audit_log row — see ScanResponse::id's own doc comment.
-    let audit_log_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO audit_log (
-            session_id, user_id, department, language, "timestamp",
-            entities_detected, risk_score, decision, reason_string,
-            ai_model_used, response_scan_result, original_prompt_hash, redacted_prompt,
-            sensitivity_class, facility_type, organisation_id
-        )
-        VALUES ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-        RETURNING id
-        "#,
+    let audit_log_id = insert_audit_log_row(
+        &state.db,
+        claims.session_id,
+        claims.sub,
+        &claims.department,
+        &payload.language,
+        &entities_json,
+        outcome.risk_score,
+        outcome.decision,
+        &outcome.reason_string,
+        NO_PROVIDER_MODEL_LABEL,
+        &response_scan_result,
+        &original_prompt_hash,
+        &redacted_prompt_for_storage,
+        outcome.sensitivity_class,
+        &payload.facility_type,
+        claims.organisation_id,
     )
-    .bind(claims.session_id)
-    .bind(claims.sub)
-    .bind(&claims.department)
-    .bind(&payload.language)
-    .bind(&entities_json)
-    .bind(outcome.risk_score)
-    .bind(outcome.decision)
-    .bind(&outcome.reason_string)
-    .bind(NO_PROVIDER_MODEL_LABEL)
-    .bind(&response_scan_result)
-    .bind(&original_prompt_hash)
-    .bind(&redacted_prompt_for_storage)
-    .bind(outcome.sensitivity_class)
-    .bind(&payload.facility_type)
-    .bind(claims.organisation_id)
-    .fetch_one(&state.db)
     .await?;
 
     // Real observability (product-depth task, Part 2) — structured fields

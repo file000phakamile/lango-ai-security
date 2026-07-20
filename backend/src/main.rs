@@ -116,6 +116,14 @@ async fn main() {
         // Response scanning (product-depth task, Part 1) — the second half
         // of the pipeline; see routes/response_scan.rs.
         .route("/api/scan/response", post(routes::response_scan::scan_response_handler))
+        // Native chat (chat feature, Phase 2) — reuses scan_prompt/
+        // scan_response entirely; see routes/chat.rs.
+        .route("/api/chat", post(routes::chat::chat))
+        .route("/api/chat/conversations", get(routes::chat::list_conversations))
+        .route(
+            "/api/chat/conversations/:id/messages",
+            get(routes::chat::list_messages),
+        )
         .route("/api/audit-log", get(routes::audit_log::get_audit_log))
         .route("/api/fairness", get(routes::fairness::get_fairness))
         .route("/api/drift", get(routes::drift::get_drift))

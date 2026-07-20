@@ -22,6 +22,44 @@ struct TargetRow {
     response_scanned_at: Option<DateTime<Utc>>,
 }
 
+/// The exact `audit_log` UPDATE every response-scan-writing route in this
+/// codebase uses — `scan_response_handler` (below, the browser extension's
+/// path) and, since the native chat feature, the background task
+/// `routes::chat` runs once a streamed response stabilises. Factored out
+/// for the same "can't silently drift" reason as
+/// `routes::scan::insert_audit_log_row`. `pub(crate)` for the same reason.
+pub(crate) async fn update_audit_log_response_scan(
+    pool: &sqlx::PgPool,
+    audit_log_id: uuid::Uuid,
+    entities_json: &serde_json::Value,
+    risk_score: f32,
+    flagged: bool,
+    response_text_hash: &str,
+    user_message: &str,
+) -> AppResult<()> {
+    sqlx::query(
+        r#"
+        UPDATE audit_log
+        SET response_entities_detected = $1,
+            response_risk_score = $2,
+            response_flagged = $3,
+            response_text_hash = $4,
+            response_scanned_at = now(),
+            response_scan_result = $5
+        WHERE id = $6
+        "#,
+    )
+    .bind(entities_json)
+    .bind(risk_score)
+    .bind(flagged)
+    .bind(response_text_hash)
+    .bind(user_message)
+    .bind(audit_log_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn scan_response_handler(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
@@ -94,25 +132,15 @@ pub async fn scan_response_handler(
     let entities_json = serde_json::to_value(&outcome.entities_detected)
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    sqlx::query(
-        r#"
-        UPDATE audit_log
-        SET response_entities_detected = $1,
-            response_risk_score = $2,
-            response_flagged = $3,
-            response_text_hash = $4,
-            response_scanned_at = now(),
-            response_scan_result = $5
-        WHERE id = $6
-        "#,
+    update_audit_log_response_scan(
+        &state.db,
+        payload.audit_log_id,
+        &entities_json,
+        outcome.risk_score,
+        outcome.flagged,
+        &response_text_hash,
+        &outcome.user_message,
     )
-    .bind(&entities_json)
-    .bind(outcome.risk_score)
-    .bind(outcome.flagged)
-    .bind(&response_text_hash)
-    .bind(&outcome.user_message)
-    .bind(payload.audit_log_id)
-    .execute(&state.db)
     .await?;
 
     Ok(Json(ScanResponseCheckResponse {

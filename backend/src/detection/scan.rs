@@ -132,6 +132,7 @@ pub const MAX_CUSTOM_PATTERN_LENGTH: usize = 200;
 /// per-match — see `routes/policy.rs` for where `pattern` text is validated
 /// (must compile, must stay under a bounded compiled-program size) before
 /// ever being stored.
+#[derive(Clone)]
 pub struct CustomPattern {
     pub entity_label: String,
     pub regex: regex::Regex,
@@ -145,6 +146,7 @@ pub struct CustomPattern {
 /// this struct existing. Only `routes/scan.rs` (the live request path)
 /// builds a non-default `ScanConfig`, from the calling organisation's
 /// database row.
+#[derive(Clone)]
 pub struct ScanConfig {
     pub confidence_threshold: f32,
     pub custom_patterns: Vec<CustomPattern>,

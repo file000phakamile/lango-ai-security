@@ -578,3 +578,113 @@ pub struct BackendErrorEntry {
 pub struct BackendErrorsResponse {
     pub errors: Vec<BackendErrorEntry>,
 }
+
+// ---------------------------------------------------------------------------
+// Native chat (Phase 2) — reuses scan_prompt/scan_response entirely (see
+// routes/chat.rs); these are wire-format types only, no detection logic.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ChatRequest {
+    /// Omit to start a new conversation.
+    pub conversation_id: Option<Uuid>,
+    pub message: String,
+}
+
+/// Sent as the JSON body when a prompt is blocked pre-gateway — the ONLY
+/// case where `POST /api/chat` returns a normal (non-streamed) JSON
+/// response, mirroring the browser extension's own "a block prevents
+/// sending, nothing else happens" behavior. No `conversation_id` here for a
+/// brand-new conversation that never got created, and no
+/// `chat_message_id` — nothing was stored (see Questions.md for why a
+/// blocked turn never creates a `chat_messages` row).
+#[derive(Debug, Serialize)]
+pub struct ChatBlockedResponse {
+    pub blocked: bool,
+    pub conversation_id: Option<Uuid>,
+    pub decision: String,
+    pub reason_string: String,
+    pub user_message: String,
+    pub entities_detected: Vec<String>,
+}
+
+/// The first line of a successful (forwarded) `POST /api/chat` response
+/// body: this struct as JSON, followed by a `\0` byte, followed by the
+/// plain-text streamed assistant reply. See `routes/chat.rs`'s own module
+/// doc comment for the full wire-protocol reasoning — a custom response
+/// header was considered and rejected (`HeaderValue` requires visible
+/// ASCII; `user_message` is dynamically built from detected entity names
+/// and isn't ASCII-guaranteed).
+#[derive(Debug, Serialize)]
+pub struct ChatStreamMeta {
+    pub conversation_id: Uuid,
+    pub audit_log_id: Uuid,
+    pub decision: String,
+    pub user_message: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ChatMessageRow {
+    pub id: Uuid,
+    pub role: String,
+    pub redacted_content: String,
+    pub risk_score: Option<f32>,
+    pub decision: Option<String>,
+    pub response_flagged: Option<bool>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChatMessageEntry {
+    pub id: Uuid,
+    pub role: String,
+    pub content: String,
+    pub risk_score: Option<f32>,
+    pub decision: Option<String>,
+    pub response_flagged: Option<bool>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<ChatMessageRow> for ChatMessageEntry {
+    fn from(row: ChatMessageRow) -> Self {
+        Self {
+            id: row.id,
+            role: row.role,
+            content: row.redacted_content,
+            risk_score: row.risk_score,
+            decision: row.decision,
+            response_flagged: row.response_flagged,
+            created_at: row.created_at,
+        }
+    }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ChatConversationRow {
+    pub id: Uuid,
+    pub title: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChatConversationEntry {
+    pub id: Uuid,
+    pub title: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<ChatConversationRow> for ChatConversationEntry {
+    fn from(row: ChatConversationRow) -> Self {
+        Self { id: row.id, title: row.title, created_at: row.created_at }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChatConversationsResponse {
+    pub conversations: Vec<ChatConversationEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChatMessagesResponse {
+    pub messages: Vec<ChatMessageEntry>,
+}
