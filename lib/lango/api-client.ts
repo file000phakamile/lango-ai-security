@@ -23,6 +23,7 @@ import type {
   SecurityEvent,
   SensitivityClass,
 } from "./types";
+import { getSession, clearSession, type LangoUser } from "./session";
 
 /**
  * Phase 4 wiring: this module is the only place in the frontend that knows
@@ -105,10 +106,55 @@ async function login(): Promise<string> {
   return data.token as string;
 }
 
+/// Real per-user login (chat feature, Phase 4) — the SAME `POST
+/// /api/auth/login` endpoint the demo auto-login above already calls, just
+/// with real credentials instead of the fixed demo ones, and returning the
+/// full response (including `role`) instead of only the token. Used by
+/// app/login/page.tsx; every other existing view keeps using the demo
+/// auto-login above, completely unaffected by this.
+export async function loginWithCredentials(email: string, password: string): Promise<{ token: string; user: LangoUser }> {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(detail?.error?.message ?? `login failed: HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return { token: data.token as string, user: data.user as LangoUser };
+}
+
+/// `true` once a real user has logged in via /login — see session.ts. When
+/// this is true, getToken()/authedGet()/authedRequest() below use that
+/// real session instead of the demo account, and a 401 means THIS user's
+/// session genuinely expired (not a stale demo-token cache entry), so it's
+/// handled differently (see authedGet's 401 branch).
+function usingRealSession(): boolean {
+  return getSession() !== null;
+}
+
 async function getToken(): Promise<string> {
+  const session = getSession();
+  if (session) return session.token;
   if (cachedToken) return cachedToken;
   cachedToken = await login();
   return cachedToken;
+}
+
+/// A real session's token was rejected — unlike the demo account's cached
+/// token (safe to silently refresh, since it's always the same fixed
+/// identity), this means the actual logged-in user's session is gone.
+/// Silently swapping them back to the demo account would be a confusing,
+/// wrong identity change, so this clears the session and sends them back to
+/// /login instead.
+function handleRealSessionExpired(): never {
+  clearSession();
+  if (typeof window !== "undefined") {
+    window.location.href = "/login";
+  }
+  throw new ApiError("Your session has expired. Please log in again.");
 }
 
 async function authedGet<T>(path: string, token: string): Promise<T> {
@@ -116,9 +162,12 @@ async function authedGet<T>(path: string, token: string): Promise<T> {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (res.status === 401) {
-    // Cached token expired or was otherwise rejected — clear it and retry
-    // once with a fresh login, rather than surfacing a confusing failure
-    // for what's really just a stale cache entry.
+    if (usingRealSession()) {
+      handleRealSessionExpired();
+    }
+    // Demo account's cached token expired or was otherwise rejected — clear
+    // it and retry once with a fresh login, rather than surfacing a
+    // confusing failure for what's really just a stale cache entry.
     cachedToken = null;
     const freshToken = await getToken();
     const retryRes = await fetch(`${API_BASE}${path}`, {
@@ -356,6 +405,9 @@ async function authedRequest<T>(path: string, method: string, body?: unknown): P
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 401) {
+    if (usingRealSession()) {
+      handleRealSessionExpired();
+    }
     // Same stale-cache retry as authedGet() above — safe here too: a 401
     // means the request was rejected before any mutation happened, so
     // retrying once with a fresh token can't cause a double-effect.
@@ -547,4 +599,185 @@ interface BackendErrorsResponse {
 export async function fetchBackendErrors(): Promise<BackendErrorEntry[]> {
   const response = await authedRequest<BackendErrorsResponse>("/api/backend-errors", "GET");
   return response.errors;
+}
+
+// ---------------------------------------------------------------------------
+// Native chat (chat feature, Phase 4). POST /api/chat's wire protocol is one
+// JSON line (meta), a NUL byte, then the assistant's reply streamed as
+// plain text chunks — see backend/src/routes/chat.rs's own module doc
+// comment for why (HeaderValue can't carry non-ASCII; EventSource can't set
+// the Authorization header this backend requires everywhere else). This is
+// the only place in the frontend that reads a streaming response body —
+// no SSE/EventSource precedent existed anywhere in this codebase before
+// this feature.
+// ---------------------------------------------------------------------------
+
+export interface ChatStreamMeta {
+  conversationId: string;
+  auditLogId: string;
+  decision: string;
+  userMessage: string;
+}
+
+export interface ChatBlockedResult {
+  blocked: true;
+  conversationId: string | null;
+  decision: string;
+  reasonString: string;
+  userMessage: string;
+  entitiesDetected: string[];
+}
+
+export interface ChatStreamResult {
+  blocked: false;
+  meta: ChatStreamMeta;
+}
+
+/// Sends a chat message and streams the assistant's reply, calling
+/// `onChunk` with each text delta as it arrives so the caller can render it
+/// incrementally. Resolves once the stream ends (or immediately, for a
+/// blocked prompt, which returns as a normal JSON body instead — see
+/// routes/chat.rs).
+export async function sendChatMessage(
+  conversationId: string | null,
+  message: string,
+  onChunk: (delta: string) => void,
+): Promise<ChatBlockedResult | ChatStreamResult> {
+  const token = await getToken();
+  const res = await fetch(`${API_BASE}/api/chat`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation_id: conversationId, message }),
+  });
+
+  if (res.status === 401) {
+    if (usingRealSession()) {
+      handleRealSessionExpired();
+    }
+    throw new ApiError("Your session expired. Please refresh the page.");
+  }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!res.ok || contentType.includes("application/json")) {
+    // Either a real HTTP error, or the one normal-JSON success case: a
+    // blocked prompt (see routes/chat.rs's own doc comment on this).
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new ApiError(data?.error?.message ?? `chat failed: HTTP ${res.status}`);
+    }
+    return {
+      blocked: true,
+      conversationId: data.conversation_id ?? null,
+      decision: data.decision,
+      reasonString: data.reason_string,
+      userMessage: data.user_message,
+      entitiesDetected: data.entities_detected ?? [],
+    };
+  }
+
+  if (!res.body) {
+    throw new ApiError("chat response had no body to stream.");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let meta: ChatStreamMeta | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffered += decoder.decode(value, { stream: true });
+
+    if (!meta) {
+      const nulIndex = buffered.indexOf("\0");
+      if (nulIndex === -1) continue; // still waiting for the full meta prefix
+      const metaRaw = JSON.parse(buffered.slice(0, nulIndex));
+      meta = {
+        conversationId: metaRaw.conversation_id,
+        auditLogId: metaRaw.audit_log_id,
+        decision: metaRaw.decision,
+        userMessage: metaRaw.user_message,
+      };
+      const rest = buffered.slice(nulIndex + 1);
+      buffered = "";
+      if (rest) onChunk(rest);
+      continue;
+    }
+
+    if (buffered) {
+      onChunk(buffered);
+      buffered = "";
+    }
+  }
+
+  if (!meta) {
+    throw new ApiError("chat stream ended before the response could be read.");
+  }
+  return { blocked: false, meta };
+}
+
+interface ChatConversationEntryResponse {
+  id: string;
+  title: string | null;
+  created_at: string;
+}
+
+export interface ChatConversationSummary {
+  id: string;
+  title: string | null;
+  createdAt: string;
+}
+
+export async function fetchChatConversations(): Promise<ChatConversationSummary[]> {
+  const res = await authedRequest<{ conversations: ChatConversationEntryResponse[] }>(
+    "/api/chat/conversations",
+    "GET",
+  );
+  return res.conversations.map((c) => ({ id: c.id, title: c.title, createdAt: c.created_at }));
+}
+
+interface ChatMessageEntryResponse {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  risk_score: number | null;
+  decision: string | null;
+  response_flagged: boolean | null;
+  created_at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  riskScore: number | null;
+  decision: string | null;
+  responseFlagged: boolean | null;
+  createdAt: string;
+}
+
+export async function fetchChatMessages(conversationId: string): Promise<ChatMessage[]> {
+  const res = await authedRequest<{ messages: ChatMessageEntryResponse[] }>(
+    `/api/chat/conversations/${conversationId}/messages`,
+    "GET",
+  );
+  return res.messages.map((m) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    riskScore: m.risk_score,
+    decision: m.decision,
+    responseFlagged: m.response_flagged,
+    createdAt: m.created_at,
+  }));
+}
+
+/// Same "force mock" check `loadDashboardData` already uses (see the top of
+/// this file) — the deployed Vercel demo has no live backend at all, so
+/// chat (which inherently needs one) shows the same UnavailableNotice every
+/// other live-only view does, rather than trying and failing to reach a
+/// backend that was never there.
+export function isLiveBackendConfigured(): boolean {
+  return process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "true";
 }

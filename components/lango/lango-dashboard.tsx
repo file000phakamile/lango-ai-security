@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Activity, AlertTriangle, Circle, FileDown, FileText, HeartPulse, HelpCircle, KeyRound, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Activity, AlertTriangle, Circle, FileDown, FileText, HeartPulse, HelpCircle, KeyRound, MessageSquare, Menu, Radio, Scale, Shield, SlidersHorizontal, X } from "lucide-react";
 import { Badge, DashboardSkeleton } from "./atoms";
 import { CommandCenter } from "./command-center";
 import { AuditLog } from "./audit-log";
@@ -14,6 +16,7 @@ import { ComplianceExport } from "./compliance-export";
 import { SystemHealth } from "./system-health";
 import { Help } from "./help";
 import { loadDashboardData, type DashboardData } from "@/lib/lango/api-client";
+import { getSession } from "@/lib/lango/session";
 import type { NavItem } from "@/lib/lango/types";
 
 const NAV: NavItem[] = [
@@ -56,6 +59,23 @@ export function LangoDashboard() {
     return NAV.some((n) => n.key === fromHash) ? fromHash : "command";
   });
   const [data, setData] = useState<DashboardData | null>(null);
+  const router = useRouter();
+
+  // Role-gated landing (chat feature, Phase 4): a staff-role user has no
+  // dashboard access at all in this product's existing role model
+  // (auth::require_role — every dashboard-reading endpoint is
+  // compliance_admin/department_reviewer only, /api/scan and /api/chat are
+  // the only routes staff can call). Only redirects when a REAL session
+  // exists (i.e. someone actually used /login) — the demo/mock viewing
+  // path this dashboard has always supported is completely untouched,
+  // since the demo account is always compliance_admin.
+  useEffect(() => {
+    const session = getSession();
+    if (session?.user.role === "staff") {
+      router.replace("/chat");
+    }
+  }, [router]);
+
   // Mobile sidebar drawer state — irrelevant above the `md` breakpoint,
   // where the sidebar is always visible and this toggle/backdrop never
   // render at all (see the `md:hidden` / `md:flex` classes below). Below
@@ -163,6 +183,17 @@ export function LangoDashboard() {
           </button>
         </div>
         <nav className="flex-1 py-3">
+          {/* Real navigation (next/link), not a view-switch button like the
+              entries below — /chat is its own route, reachable but visually
+              distinct so it doesn't read as just another dashboard tab. */}
+          <Link
+            href="/chat"
+            className="w-full flex items-center gap-3 px-5 py-2.5 text-sm text-left transition-colors text-[#5B6270] border-l-2 border-transparent hover:text-[#14171C]"
+          >
+            <MessageSquare size={15} />
+            Chat
+          </Link>
+          <div className="mx-5 my-2 border-t border-[#E1E4E8]" />
           {NAV.map((n) => (
             <button
               key={n.key}

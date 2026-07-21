@@ -3416,3 +3416,98 @@ claimed as done.
 
 Full existing test suite (125 lib tests + all integration suites, now
 including 7 new organisation-API-key tests) passes with zero regressions.
+
+## 49. Native chat feature, Phase 4 (frontend /chat route, role-gated
+landing) — a real login page, "no new auth surface" reconciled, and a real
+race condition caught only by actually running it
+
+**A real login page was added — judged necessary, not scope creep, and
+reconciled explicitly against the task's own "no new auth surface"
+constraint.** Before this phase, this dashboard had no login screen at all
+in v0.1 — it authenticates transparently as one fixed demo account (see
+Questions.md item 11). "A staff-role user logging in should land directly
+on /chat" is meaningless without an actual login action producing a real
+role. `app/login/page.tsx` calls the EXISTING `POST /api/auth/login`
+endpoint with real credentials instead of the fixed demo ones — same
+backend route, same JWT, same three-role model, zero new backend surface.
+The existing demo auto-login is completely untouched: every other dashboard
+view still works with zero setup, exactly as before. New
+`lib/lango/session.ts` stores what `/api/auth/login` already returns
+(`token` + `user`, including `role`) in `localStorage`, since the dashboard
+had no persistent session storage before this — the demo flow uses an
+in-memory cache instead, which resets on reload by design.
+
+**Role-gating only activates for a REAL login, never for the demo/mock
+path.** `LangoDashboard` redirects to `/chat` only when
+`getSession()?.user.role === "staff"` — i.e. only after someone actually
+used `/login`. Visiting `/` with no real session (the existing zero-config
+demo/mock experience, including the deployed Vercel demo) behaves exactly
+as it always has. A real session's expired/invalid token also gets
+different handling than the demo token's: the demo token silently
+re-fetches (safe, since it's always the same fixed identity); a real
+session's 401 clears the session and sends the user back to `/login`
+instead of silently swapping them onto the demo account's identity, which
+would be a confusing, wrong behavior change.
+
+**`/chat` is a real Next.js route, not another `view` key in
+`LangoDashboard`'s client-side switch** — deliberately, since it needs its
+own URL a staff login can land on directly, and the existing switch has no
+URL representation for its view keys besides a one-time hash read (see
+item 1). Reachable from the dashboard sidebar via a real `next/link`,
+visually separated (a divider, no `view===key` active-state styling) from
+the view-switch buttons below it, so it reads as a distinct destination,
+not just another tab.
+
+**Wire protocol client**: `sendChatMessage` in `lib/lango/api-client.ts` is
+the one place in the frontend that reads a streaming `fetch` response body
+(`response.body.getReader()`), splitting on the first NUL byte to separate
+the JSON meta prefix from the streamed text — no `EventSource`/SSE library
+needed, matching `routes/chat.rs`'s own wire-protocol design (see item 47).
+
+**A real race condition, found only by actually running the feature, not
+by review**: `routes::chat`'s background task (`stream_and_scan`) closes
+the client's HTTP stream the INSTANT the provider's reply finishes
+forwarding — deliberately, so the response scan's latency never delays what
+the user perceives (see item 47) — and only inserts the assistant
+`chat_messages` row AFTER that, once the scan has run. The frontend's first
+draft called `fetchChatMessages` immediately after the stream ended to get
+the authoritative, redacted, persisted version of the exchange — and could
+genuinely win that race, getting back a list with the user's turn but not
+yet the assistant's, at which point clearing `streamingText` would blank a
+reply the user had just watched stream in. Caught with a real Playwright
+run against a real running backend + a local mock OpenAI server (not
+assumed, not simulated) — the first full screenshot pass showed a missing
+assistant bubble; a follow-up debug run with longer waits showed it appear
+correctly, which pointed straight at a timing race rather than a
+logic bug. Fixed with a small bounded retry (up to 5 attempts, 300ms apart)
+before ever clearing the streaming placeholder — re-verified with a
+deliberately tight 5-iteration stress test (900ms after send, well inside
+the old failure window) showing the reply present every time afterward.
+
+**Live, real, end-to-end UI verification performed in this session** (not
+deferred, unlike item 48's note about a blocked click-through): a local
+Playwright Chromium instance, a real running backend instance, a real
+local mock HTTP server standing in for OpenAI (never the real API — see
+item 48's accounting of the one real call already made and not repeated),
+and a `next build`+`next start` production server (chosen specifically
+because a `next dev` instance was already running against this project
+directory from an earlier session and its directory-scoped lock refused a
+second `dev` instance — `next start` has no such lock). Confirmed, with
+real screenshots and zero browser console errors: `staff1@lango.demo`
+logging in lands directly on `/chat` with no dashboard link shown; a clean
+message streams and renders correctly; a message that should block
+(`token: aZ9x...`) shows the red block banner and creates no chat bubble;
+a response engineered to leak a national-id-shaped string streams
+unmodified to the user and then shows the amber "may contain sensitive
+information" warning once the background scan completes (~2-4s later, via
+polling); logging out and back in as `compliance@lango.demo` lands on the
+normal dashboard with a working "Chat" sidebar link; and the Policy
+Builder's new "Chat: OpenAI API Key" panel renders exactly as designed,
+including the real usage count from item 48's earlier live testing.
+
+**Sample-data-only limitation, stated plainly**: the deployed Vercel demo
+(`NEXT_PUBLIC_USE_MOCK_DATA=true`, no live backend at all) shows the same
+`UnavailableNotice` on `/chat` every other live-only view already uses
+(`isLiveBackendConfigured()`), rather than attempting and failing against a
+backend that was never there — consistent with this codebase's existing
+policy-builder/compliance-export/system-health precedent.
