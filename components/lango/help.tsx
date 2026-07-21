@@ -1,4 +1,4 @@
-import { BookOpen, Building2, Puzzle } from "lucide-react";
+import { BookOpen, Building2, MessageSquare, Puzzle } from "lucide-react";
 import { Panel } from "./atoms";
 
 /// The dashboard's own "how do I use this" page — a real in-app view, not a
@@ -12,8 +12,8 @@ import { Panel } from "./atoms";
 export function Help() {
   return (
     <div className="space-y-5">
-      <Panel title="The two parts of Lango" sub="Two separate tools for two different people">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+      <Panel title="The parts of Lango" sub="Different tools for different people and situations">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
           <div className="flex gap-3">
             <Puzzle size={18} className="text-[#8A6323] shrink-0 mt-0.5" />
             <div>
@@ -26,12 +26,23 @@ export function Help() {
             </div>
           </div>
           <div className="flex gap-3">
+            <MessageSquare size={18} className="text-[#8A6323] shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-[#14171C]">Native chat (/chat)</p>
+              <p className="text-[#5B6270] mt-1 leading-relaxed">
+                The same protection, no install needed — type a message, it's scanned
+                and redacted the same way, then sent to OpenAI using the
+                organisation's own key. The fuller path once it's rolled out.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-3">
             <Building2 size={18} className="text-[#8A6323] shrink-0 mt-0.5" />
             <div>
               <p className="font-semibold text-[#14171C]">This dashboard</p>
               <p className="text-[#5B6270] mt-1 leading-relaxed">
-                What a compliance or IT officer uses afterward, to review what the
-                extension has been doing: what was redacted, what was blocked, what's
+                What a compliance or IT officer uses afterward, to review what's been
+                happening across both: what was redacted, what was blocked, what's
                 flagged for review.
               </p>
             </div>
@@ -40,10 +51,13 @@ export function Help() {
         <p className="text-xs text-[#8A93A1] mt-4 leading-relaxed">
           This is a v0.1 demo, not a finished commercial product — real, working code,
           not a mockup, but without a formal security audit yet. There is no
-          self-service signup: this demo runs on one shared account,{" "}
-          <code className="font-mono">compliance@lango.demo</code> /{" "}
+          self-service signup: the dashboard's other views still run on one shared
+          account, <code className="font-mono">compliance@lango.demo</code> /{" "}
           <code className="font-mono">LangoDemo123!</code> — already public, and it
-          only ever protects synthetic demo data.
+          only ever protects synthetic demo data. A real login (<code className="font-mono">/login</code>) now exists for
+          /chat — try <code className="font-mono">staff1@lango.demo</code> to see a
+          staff login land directly on /chat with no dashboard access, matching the
+          real role model.
         </p>
       </Panel>
 
@@ -69,6 +83,19 @@ export function Help() {
             well under a second.
           </li>
         </ol>
+      </Panel>
+
+      <Panel title="Using the native chat" sub="No install needed">
+        <p className="text-sm text-[#14171C] leading-relaxed">
+          Log in at <code className="font-mono text-xs">/login</code> and, if your
+          organisation has provisioned an OpenAI key (Policy Builder → Chat: OpenAI
+          API Key, compliance admin only), start typing. The same scan runs on your
+          message first — a blocked message shows the same red banner, nothing is
+          sent; a clean or redacted message streams a reply back from OpenAI in real
+          time. If the reply itself turns out to contain something sensitive, you'll
+          see the same amber warning below, attached to that reply, usually within a
+          few seconds — the reply is never changed or hidden.
+        </p>
       </Panel>
 
       <Panel title="What each banner means" sub="Color is always paired with a plain-language message">
@@ -107,7 +134,7 @@ export function Help() {
             ["Drift & Security", "Tracks whether detection accuracy is drifting over time, plus a feed of security-relevant events."],
             ["Pilot & Sandbox", "The current pilot's scope, rollout checklist, and success metrics."],
             ["Health Data Guard", "The same monitoring scoped to health-related detections — deliberately only totals and coarse splits, never a per-condition breakdown."],
-            ["Policy Builder", "Lets a compliance admin adjust detection sensitivity within safe bounds and add organisation-specific patterns. Health-related detections always follow the strictest rule regardless of this setting — that one isn't configurable by anyone."],
+            ["Policy Builder", "Lets a compliance admin adjust detection sensitivity within safe bounds, add organisation-specific patterns, and provision/rotate the OpenAI key that powers /chat (never shown again once saved, only a masked confirmation). Health-related detections always follow the strictest rule regardless of the sensitivity setting — that one isn't configurable by anyone."],
             ["Compliance Export", "One-click CSV/PDF export of the audit log, fairness metrics, and drift history, ready to hand to an auditor."],
             ["System Health", "A simple list of recent system errors, so an operator can spot a problem without a separate monitoring tool."],
           ].map(([title, desc]) => (
@@ -143,6 +170,13 @@ export function Help() {
             scanning.</strong> Lango approximates "the reply is finished" by waiting
             for the page to stop changing — a measured, evidence-based heuristic, not
             a guarantee.
+          </li>
+          <li>
+            <strong>The native chat's connection to OpenAI is unverified against
+            the real API.</strong> No live OpenAI key was available while building
+            it — tested against a stand-in mock server, plus one deliberate real
+            test call with a fake key to confirm errors are handled cleanly (they
+            were). Not yet confirmed against the real service end to end.
           </li>
           <li>
             <strong>One shared demo account.</strong> Every action in this demo is

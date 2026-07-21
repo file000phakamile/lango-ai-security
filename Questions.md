@@ -3574,3 +3574,57 @@ clean re-application of the real `exclude_matches` edit via the same
 targeted string replacement used the first time — the final diff against
 the last commit is exactly the five intended `exclude_matches` lines added,
 nothing else.
+
+## 51. Native chat feature, Phase 6 (documentation) — the AI Gateway
+correction, and what "kept in sync" actually required
+
+**The single most consequential documentation change in this whole feature**:
+`docs/ARCHITECTURE.md`'s AI layer and Integrations rows, and the README's
+Architecture section, have said for a long time — accurately, at the time — that the
+backend's "AI Gateway" pipeline stage is a labeled no-op, and that no server-side
+connector to any AI provider exists. That stopped being true the moment `POST
+/api/chat` shipped in Phase 2. Per this task's own explicit instruction, this is
+stated as plainly as the original no-op claim was: the AI Gateway stage is now real,
+for chat's own request path specifically — not a rewrite of the whole claim, since
+`/api/scan` (the extension's path) genuinely still never calls a provider, by design,
+and collapsing that distinction would be its own inaccuracy in the other direction.
+Both `docs/ARCHITECTURE.md` and `README.md` now say this in the same place the old
+no-op claim used to stand alone, rather than only in a new section that could be
+missed by a reader skimming the table rows they already trust.
+
+**Every doc's existing "v0.1 (deployed) / Target" or "Deployed / Target" table
+structure was preserved and extended, not replaced** — `docs/ARCHITECTURE.md` and
+`docs/SECURITY_PRIVACY.md` both organize their claims this way already, and native
+chat's own honest-verification framing (real code, unverified against the real
+external API) fits that exact structure naturally: it's real, deployed, tested
+against a mock, and explicitly not yet verified live — which is a genuinely different
+status from either column alone, so it's stated as its own qualified claim inside the
+existing row rather than forced into "deployed" or "target."
+
+**`HOW_TO_USE.md` and `components/lango/help.tsx` were updated as a matched pair, on
+purpose** — both files state their own convention (`help.tsx`'s doc comment: "kept in
+sync with HOW_TO_USE.md... by hand... same headings, same facts, same order") and
+this task's own instruction to update "the dashboard's own Help tab" specifically,
+not just the markdown file, made following that convention non-optional. Same new
+sections in both (a three-way "parts of Lango" split instead of two, a "using the
+native chat" walkthrough, the same two new Known-limitations bullets), same order,
+same facts — checked against each other directly while writing, not written
+independently and assumed to match.
+
+**Extension vs. web app guidance is explicit everywhere the task asked for it,
+worded the same way every time, never implying deprecation**: `README.md`'s Native
+chat section, `docs/ARCHITECTURE.md`'s Native chat section, `HOW_TO_USE.md`'s "which
+one should you actually use" paragraph, and `help.tsx`'s three-way panel all say the
+same thing — the web app's chat is the fuller, no-install path once an institution
+has rolled it out and provisioned a key; the extension remains the right tool for any
+site the web app doesn't cover, or before that rollout. None of the four says or
+implies the extension is being phased out, retired, or superseded — checked directly
+against the task's explicit instruction not to write anything implying that, not
+assumed compliant.
+
+**Verified**: `npx tsc --noEmit` and a production `next build` both pass cleanly
+after every doc/component edit in this phase (the `help.tsx` changes are real TSX,
+not just markdown, so this is a genuine compile check, not a formality); every edited
+Markdown file re-checked as valid UTF-8 after editing, following the same discipline
+Phase 5's manifest mistake (item 50) made worth repeating deliberately rather than
+assuming text edits are always safe.

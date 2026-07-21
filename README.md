@@ -45,10 +45,13 @@ than a black box.
 
 **Live demo:** https://lango-app-dusky.vercel.app
 
-The eight views (sidebar navigation): Command Center, Audit Log, Fairness Audit,
-Drift & Security, Pilot & Sandbox, Health Data Guard, Policy Builder, and
-Compliance Export. See [docs/UX_DESIGN.md](docs/UX_DESIGN.md) for what each one
-shows and why.
+The eight dashboard views (sidebar navigation): Command Center, Audit Log, Fairness
+Audit, Drift & Security, Pilot & Sandbox, Health Data Guard, Policy Builder, and
+Compliance Export. See [docs/UX_DESIGN.md](docs/UX_DESIGN.md) for what each one shows
+and why. **`/chat`** is a separate, real route (not part of that sidebar switch) — a
+native in-app chat interface backed by the organisation's own OpenAI key; see
+[Native chat](#native-chat-v01) below for what it is and when to use it instead of, or
+alongside, the browser extension.
 
 A narrated walkthrough script for a screen recording of this demo is at
 [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md); slide-by-slide pitch content is at
@@ -65,11 +68,17 @@ fairness math, and real PSI / KL-divergence drift math — all computed from act
 rows in a `audit_log` table, not fabricated. The Next.js dashboard calls these
 endpoints over HTTP; see [Setup](#setup) to run both halves locally.
 
-What's still a deliberate v0.1 simplification, stated plainly: the backend's own "AI
-Gateway" pipeline stage remains a labeled no-op — the Rust backend itself still never
-calls an AI provider's API server-side (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
-**Separately, a real interception mechanism now exists in front of AI providers' own
-web UIs, covering both halves of the pipeline**: [`extension/`](extension/) is a
+**The backend's own "AI Gateway" pipeline stage is no longer a no-op.** For years this
+document said the Rust backend never calls an AI provider server-side — that was true
+until the native chat feature below. `POST /api/chat` genuinely does call OpenAI, with
+the organisation's own key, and streams the reply back — this is what finally makes
+that pipeline stage real rather than documented-but-absent. It's real only for chat's
+own request path, though: `/api/scan` (the extension's endpoint) still never touches a
+provider itself, by design — see [Native chat](#native-chat-v01) below and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+**Separately, the client-side interception mechanism in front of AI providers' own
+web UIs is unchanged and still fully supported**: [`extension/`](extension/) is a
 Manifest V3 browser extension that scans and redacts/blocks prompts *in the browser*
 before they ever reach the site's own send action (**Prompt Scanner** in the pipeline
 description above), and — as of the "response scanning + observability + hardening"
@@ -268,6 +277,72 @@ for the complete verification trail, including a methodology correction to an ea
 session's incorrect conclusion that extensions couldn't be loaded in this environment
 at all.
 
+### Native chat (v0.1)
+
+A native in-app chat interface, built entirely on top of the existing pipeline — no
+new detection logic, no new auth surface, no second organisation/role model. One app,
+one backend, one login. See [Questions.md](Questions.md) items 46-49 for the full
+design writeup and judgment calls behind everything below.
+
+- **Reuses the detection pipeline exactly.** `POST /api/chat` runs the exact same
+  `scan_prompt`/`scan_response` functions (`backend/src/detection/scan.rs`) the
+  extension's `/api/scan` and `/api/scan/response` already use — zero duplicated
+  detection logic. A blocked prompt (`blocked_low_confidence`) returns immediately;
+  OpenAI is never called. A redacted-and-forwarded (either tier) or clean prompt is
+  sent, redacted, to OpenAI, and the reply streams back to the browser as it arrives.
+- **A real provider adapter, OpenAI only.** `backend/src/providers/` defines a
+  `ChatProvider` trait general enough for a future second provider, but only
+  `OpenAiProvider` is implemented and tested. This is the first and only place this
+  backend makes an outbound HTTP call to a third-party AI API — `/api/scan` still
+  never does, by design (see the AI Gateway note above).
+- **Fails open on the response side, for the same reason the extension already
+  does.** A response has already streamed to the user by the time it can be scanned —
+  there's nothing left to block. A flagged response is never modified or hidden, only
+  retroactively flagged (`chat_messages.response_flagged`,
+  `audit_log.response_flagged`), surfaced in the chat UI with the same amber "may
+  contain sensitive information" warning treatment used throughout this dashboard.
+- **Chat history stores the redacted version of every message only, never the raw
+  original** — the same zero-raw-prompt-storage principle already enforced in
+  `audit_log`. A user's message is stored only as `scan_prompt`'s redacted output; a
+  blocked prompt is never stored as a chat message at all (mirroring the extension's
+  own "a block prevents sending" behavior). The one place this differs from the
+  extension: an assistant reply IS stored verbatim, since (unlike the extension, which
+  never needs to persist a reply already rendered on a third-party page) this chat
+  surface is the only place responsible for redisplaying it later — `scan_response`
+  never redacts a reply either way, only flags it.
+- **One shared OpenAI key per organisation**, provisioned/rotated by a
+  `compliance_admin` from the **Policy Builder** view's "Chat: OpenAI API Key"
+  section, encrypted at rest (AES-256-GCM, `backend/src/crypto.rs`) and never
+  displayed again after saving — only a masked `sk-…last4` confirmation. Basic usage
+  visibility (a request count over 7/30/90 days) is pulled from this organisation's
+  own `audit_log`, not OpenAI's billing API.
+- **Role-gated landing**: a `staff` login lands directly on `/chat` (staff has no
+  dashboard access in the existing role model); `compliance_admin`/
+  `department_reviewer` land on the dashboard, which has a "Chat" sidebar link to
+  reach `/chat` too. This required a real login page (`/login`) — see Questions.md
+  item 49 for how that was reconciled with not adding a new auth surface (same
+  `POST /api/auth/login` endpoint the existing demo account already uses).
+- **The extension is not being replaced or deprecated.** Both stay in the product,
+  for different situations: the web app's chat is the more complete, more robust path
+  once an institution has actually rolled it out and provisioned an OpenAI key — every
+  turn gets a durable, queryable audit trail entry the same way `/api/scan` already
+  does. The extension remains the lower-friction path for any site the web app doesn't
+  cover, or before an institution has rolled out `/chat` at all — an employee can start
+  using it immediately with nothing to provision.
+- **Verification, stated honestly**: no live OpenAI API key was available in this
+  environment. Everything through the provider adapter is tested against a mocked
+  OpenAI response — unit tests for the SSE-parsing logic, and full-pipeline
+  integration tests (`backend/tests/chat.rs`) against a real local mock HTTP server
+  (`wiremock`), never the real API. **One real network call did reach the real OpenAI
+  API during manual live-testing**, using a deliberately fake key to verify
+  error-handling — it received a real `401 Unauthorized` and was handled correctly,
+  but this is not a verified successful completion. **The real, live OpenAI
+  integration remains unverified against the actual API** until someone with a real
+  key tests it. The frontend UI itself was verified live end-to-end (Playwright,
+  against a real running backend + local mock provider) — see Questions.md items 47-49
+  for the full accounting, including a real streaming race condition this caught and
+  fixed.
+
 ### Real observability (v0.1)
 
 Structured logging (`tracing`) now covers the significant application events, not
@@ -409,7 +484,10 @@ two halves of the real system:
   `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_USE_MOCK_DATA`, and the demo login the
   dashboard authenticates as automatically (there's no login screen in v0.1).
 - [`backend/.env.example`](backend/.env.example) (backend, copy to `backend/.env`):
-  `DATABASE_URL`, `JWT_SIGNING_SECRET`, `PORT`, `CORS_ORIGIN`.
+  `DATABASE_URL`, `JWT_SIGNING_SECRET`, `PORT`, `CORS_ORIGIN`,
+  `API_KEY_ENCRYPTION_KEY` (native chat feature — a 64-hex-character AES-256 key
+  used to encrypt organisation OpenAI keys at rest; generate a real one with
+  `openssl rand -hex 32`).
 - [`.env.example`](.env.example) at the repo root is legacy/aspirational — it
   documents variables a *hosted production* deployment would additionally need (an AI
   provider API key, an alert webhook) that no code in this repo reads yet, since v0.1
@@ -427,15 +505,24 @@ path, and the PSI/KL-divergence math.
 **Backend integration tests** (`cd backend && cargo test`, requires a real Postgres
 reachable via `DATABASE_URL` — see [Setup](#full-stack-real-backend--real-data)):
 `backend/tests/multi_tenant_isolation.rs`, `consent_flow.rs`,
-`organisation_signup.rs`, `policy_builder.rs`, `compliance_export.rs`, and
-`review_decisions.rs`, each using `#[sqlx::test]` against a freshly-migrated
+`organisation_signup.rs`, `policy_builder.rs`, `compliance_export.rs`,
+`review_decisions.rs`, `chat_multi_tenant_isolation.rs`, `chat.rs`, and
+`organization_api_keys.rs`, each using `#[sqlx::test]` against a freshly-migrated
 throwaway database and calling real route handlers directly (no HTTP server, no
 mocks) — cross-tenant isolation, the consent gate, org signup, the policy
 builder's safe-bounds enforcement (including a direct test that an out-of-range
 threshold is rejected by the API itself, not just the UI), the compliance
-export's date-range filtering/RBAC/isolation, and the active learning loop's
+export's date-range filtering/RBAC/isolation, the active learning loop's
 review-eligibility rules, department scoping, one-decision-per-row enforcement,
-and cross-tenant isolation.
+and cross-tenant isolation, and — for native chat — the full scan/stream/
+response-scan pipeline against a real local mock OpenAI server, organisation
+API key provisioning/rotation/RBAC, and chat-specific cross-tenant isolation.
+
+**Extension manifest test** (`npm run test:extension`, no dependencies, no
+database): asserts the extension's content scripts never activate on this app's
+own deployed domain (`extension/manifest.json`'s `exclude_matches`) — see
+[HOW_TO_USE.md](HOW_TO_USE.md) for when to use the extension vs. the web app's
+native chat.
 
 No frontend automated test suite yet — an honest gap, not an oversight we're hiding.
 See [Known Limitations](#known-limitations) and
@@ -527,6 +614,13 @@ Stated plainly, not softened:
   TODO.
 - **No real user feedback yet.** No pilot users have interacted with this demo; see
   [docs/UX_DESIGN.md](docs/UX_DESIGN.md).
+- **Native chat's live OpenAI integration is unverified against the real API.** No
+  live OpenAI key was available while building it — tested against a mocked SSE
+  response and a real local mock HTTP server standing in for OpenAI, never the real
+  one, except for one incidental real network call (a deliberately fake key, to
+  verify error handling — received a real `401`, handled correctly, not a verified
+  successful completion). See [Native chat](#native-chat-v01) above and
+  [Questions.md](Questions.md) items 47-49.
 
 ## Team
 

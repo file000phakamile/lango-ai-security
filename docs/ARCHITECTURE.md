@@ -40,13 +40,13 @@ Render) that's since been fixed. See also
 
 | Layer | Deployed v0.1 (this repo, live today) | Target production system |
 |---|---|---|
-| **Users** | **Real, multi-tenant.** Every user belongs to exactly one `organisations` row and one of three roles — `staff` (scan only, no dashboard), `department_reviewer` (dashboard scoped to their own department), `compliance_admin` (dashboard scoped to their own organisation) — enforced by real, tested query-level filtering on every endpoint (see [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) and `backend/tests/multi_tenant_isolation.rs`). A new institution can self-register via `POST /api/organisations/signup` (backend-only in v0.1 — no dashboard signup page yet, see [Questions.md](../Questions.md)). The dashboard *itself* still authenticates transparently as one fixed seeded account, `compliance@lango.demo`, rather than having its own login screen — preserved deliberately, unchanged, as the seeded account of one specific "Regional Commercial Bank Demo" organisation, for continuity with the already-submitted AI4I materials, which reference it directly. | A real dashboard login screen (replacing the fixed demo-account shortcut), and a self-service signup UI to match the backend endpoint that already exists. |
+| **Users** | **Real, multi-tenant.** Every user belongs to exactly one `organisations` row and one of three roles — `staff` (scan only, no dashboard), `department_reviewer` (dashboard scoped to their own department), `compliance_admin` (dashboard scoped to their own organisation) — enforced by real, tested query-level filtering on every endpoint (see [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) and `backend/tests/multi_tenant_isolation.rs`). A new institution can self-register via `POST /api/organisations/signup` (backend-only in v0.1 — no dashboard signup page yet, see [Questions.md](../Questions.md)). **A real login page now exists** (`/login`, native chat feature — no new auth surface, calls the same `POST /api/auth/login` endpoint): a `staff` login lands on `/chat` directly (no dashboard access, per the role model above), `compliance_admin`/`department_reviewer` land on the dashboard. The dashboard's OTHER views are unaffected and still fall back to authenticating transparently as the fixed seeded account, `compliance@lango.demo`, when no real login has happened — preserved deliberately, unchanged, for continuity with the already-submitted AI4I materials, which reference it directly. | A self-service signup UI to match the backend endpoint that already exists, and extending the new real login beyond `/chat` to gate the rest of the dashboard too (today it's opt-in — visiting `/` directly still uses the demo account unless `/login` was used first). |
 | **Access channel** | Deployed and live: Vercel frontend calling the Render-hosted backend over HTTPS (subject to the free-tier spin-down note above). `npm run dev` (frontend) + `cargo run` (backend) on localhost remain available for local development against the same codebase. | Same web access channel, but behind institutional authentication; potentially embedded/proxied so staff use it transparently alongside their existing AI tool. |
 | **Frontend** | Next.js 16 (App Router) + React 19 + TypeScript, Tailwind CSS v4, shadcn-based UI primitives, Recharts for charts. Single client component (`LangoDashboard`) with six sub-views switched by local state — no routing between views (the sixth, Health Data Guard, was added by the health module — see [HEALTH_MODULE.md](HEALTH_MODULE.md) — without changing the original five). `lib/lango/api-client.ts` fetches real data from the backend and falls back to the old mock generator if it's unreachable. | Same frontend stack, plus a real login screen and a signup page (replacing the fixed demo-account shortcut and the backend-only signup endpoint). |
 | **Backend** | **Real.** Rust + Axum HTTP API (`backend/`) implementing `/api/auth/login`, `/api/organisations/signup`, `/api/consent/accept`, `/api/scan`, `/api/audit-log`, `/api/fairness`, `/api/drift`, `/api/security-events`, `/api/command-center/summary`, `/api/health-data-guard/summary` — JWT-authenticated, role-gated, real error handling with a consistent JSON error shape. The AI Gateway pipeline stage is present as a labeled no-op (see AI layer row below), not a live call. | Same API surface, hardened: rate limiting, structured audit logging of admin actions, the AI Gateway stage actually forwarding to a live provider. |
-| **Database** | **Real, multi-tenant.** PostgreSQL via `sqlx`, migrations in `backend/migrations/`: `organisations`, `users`, `sessions`, `audit_log`, `detection_rules`, `security_events`, `drift_snapshots` — every tenant-scoped table carries an `organisation_id` foreign key, enforced by a real query-level filter on every endpoint, not just a schema column (see [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md)). Plus migration `0008` (health module) adding `audit_log.sensitivity_class` and `audit_log.facility_type` — see [HEALTH_MODULE.md](HEALTH_MODULE.md). `docker-compose.yml` spins up Postgres locally; `backend/src/bin/seed.rs` populates realistic sample data (all under one fixed demo organisation) by running synthetic prompts through the real detection engine. Raw prompt text is never stored — only a SHA-256 hash (`original_prompt_hash`) plus the redacted version. | Same schema, plus row-level security as defense-in-depth on top of the existing query-level filtering, retention policy enforcement, and backup/DR. |
-| **AI layer** | Rule-based pattern matching (real regexes, Luhn-checked credit cards, plus health-specific dictionary/context detectors — see [HEALTH_MODULE.md](HEALTH_MODULE.md)) + a **capitalized-word-sequence heuristic standing in for NER** (`backend/src/detection/name_heuristic.rs` — explicitly documented in its own doc comment as not real NER; a full transformer-based NER crate needs a native libtorch/onnxruntime dependency, too heavy for this v0.1 — see [Questions.md](../Questions.md)). No live generative-AI provider is connected — `ai_model_used` on every audit-log row is a literal string stating that plainly, not a fabricated model name. | Rule-based pattern matching + a real NER model (once a workable lightweight option exists, or the heavier dependency is judged worth it) for sensitive-entity detection — deliberately not a generative model itself, for explainability (see [DATA_AI_USAGE.md](DATA_AI_USAGE.md)). The sanitised prompt is then forwarded to whichever external generative AI provider the institution already uses; Lango does not replace that provider, it gates access to it. |
-| **Integrations** | One: [`extension/`](../extension/), a Manifest V3 browser extension that integrates with five AI chat sites' web UIs client-side (intercepting the composer's submit action AND, as of the "response scanning + observability + hardening" task, the AI's reply once it renders — not a server-side connector either way) — chatgpt.com, claude.ai, gemini.google.com, chat.deepseek.com, copilot.microsoft.com (Microsoft's consumer web chat, not GitHub Copilot). Response scanning specifically covers chatgpt.com, claude.ai, and gemini.google.com. Of the five, **chatgpt.com's prompt-side interception is verified against a live session** (earlier pass), and **gemini.google.com is now verified end-to-end for both prompt AND response scanning** against a real, live, anonymous session — see [Questions.md](../Questions.md) item 26, including a methodology correction to an earlier session's incorrect conclusion that this environment couldn't load browser extensions at all. claude.ai, chat.deepseek.com, and copilot.microsoft.com remain implemented but not verified against live pages; chatgpt.com's own response-side selectors are likewise unverified (chatgpt.com itself remains unreachable for a full session — see `extension/README.md` and `extension/USER_GUIDE.md` for exactly what was and wasn't tested, per site and per direction). No server-side connector to any AI provider's API exists; the backend's own AI Gateway stage remains a no-op. | Server-side connector(s) to the institution's chosen AI provider(s), in addition to (or instead of) the client-side extension approach; an alert/notification channel for drift and fairness alerts (see `.env.example`, `ALERT_WEBHOOK_URL`); potentially SSO/identity-provider integration for institutional login. |
+| **Database** | **Real, multi-tenant.** PostgreSQL via `sqlx`, migrations in `backend/migrations/`: `organisations`, `users`, `sessions`, `audit_log`, `detection_rules`, `security_events`, `drift_snapshots` — every tenant-scoped table carries an `organisation_id` foreign key, enforced by a real query-level filter on every endpoint, not just a schema column (see [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md)). Plus migration `0008` (health module) adding `audit_log.sensitivity_class` and `audit_log.facility_type` — see [HEALTH_MODULE.md](HEALTH_MODULE.md). Plus migration `0017` (native chat feature): `organization_api_keys` (one encrypted OpenAI key per organisation), `chat_conversations`, `chat_messages` (redacted content only — see the Native chat section below). `docker-compose.yml` spins up Postgres locally; `backend/src/bin/seed.rs` populates realistic sample data (all under one fixed demo organisation) by running synthetic prompts through the real detection engine. Raw prompt text is never stored — only a SHA-256 hash (`original_prompt_hash`) plus the redacted version; chat messages follow the identical principle. | Same schema, plus row-level security as defense-in-depth on top of the existing query-level filtering, retention policy enforcement, and backup/DR. |
+| **AI layer** | Rule-based pattern matching (real regexes, Luhn-checked credit cards, plus health-specific dictionary/context detectors — see [HEALTH_MODULE.md](HEALTH_MODULE.md)) + a **capitalized-word-sequence heuristic standing in for NER** (`backend/src/detection/name_heuristic.rs` — explicitly documented in its own doc comment as not real NER; a full transformer-based NER crate needs a native libtorch/onnxruntime dependency, too heavy for this v0.1 — see [Questions.md](../Questions.md)). `ai_model_used` on an `/api/scan`-originated row (the extension's path) is still a literal "not connected" string — that path never calls a provider, by design. **This is no longer true for every row, though**: the native chat feature's `POST /api/chat` (see the dedicated section below) genuinely calls OpenAI server-side and records the real model used — **this is what finally makes the AI Gateway pipeline stage real, for chat's own request path, rather than the documented no-op it was for years.** | Rule-based pattern matching + a real NER model (once a workable lightweight option exists, or the heavier dependency is judged worth it) for sensitive-entity detection — deliberately not a generative model itself, for explainability (see [DATA_AI_USAGE.md](DATA_AI_USAGE.md)). The sanitised prompt is then forwarded to whichever external generative AI provider the institution already uses; Lango does not replace that provider, it gates access to it. A second provider beyond OpenAI, and model choice within the Policy Builder, remain future work — the `ChatProvider` trait (`backend/src/providers/`) was built general enough for this, but only `OpenAiProvider` is implemented. |
+| **Integrations** | **Two, now**: [`extension/`](../extension/), a Manifest V3 browser extension that integrates with five AI chat sites' web UIs client-side (intercepting the composer's submit action AND, as of the "response scanning + observability + hardening" task, the AI's reply once it renders — a client-side interception, not a server-side connector), and — as of the native chat feature — a real **server-side connector to OpenAI** (`backend/src/providers/openai.rs`), used by `POST /api/chat`. The extension covers chatgpt.com, claude.ai, gemini.google.com, chat.deepseek.com, copilot.microsoft.com (Microsoft's consumer web chat, not GitHub Copilot); response scanning specifically covers chatgpt.com, claude.ai, and gemini.google.com. Of the five, **chatgpt.com's prompt-side interception is verified against a live session** (earlier pass), and **gemini.google.com is now verified end-to-end for both prompt AND response scanning** against a real, live, anonymous session — see [Questions.md](../Questions.md) item 26, including a methodology correction to an earlier session's incorrect conclusion that this environment couldn't load browser extensions at all. claude.ai, chat.deepseek.com, and copilot.microsoft.com remain implemented but not verified against live pages; chatgpt.com's own response-side selectors are likewise unverified (chatgpt.com itself remains unreachable for a full session — see `extension/README.md` and `extension/USER_GUIDE.md` for exactly what was and wasn't tested, per site and per direction). The extension's content scripts explicitly exclude this app's own domain (`manifest.json`'s `exclude_matches`, tested — see [Questions.md](../Questions.md) item 50) — the two integrations serve different sites, deliberately, never the same page. The OpenAI connector itself remains unverified against the real live API — see the Native chat section below. | A second AI provider beyond OpenAI (the `ChatProvider` trait already supports this structurally); an alert/notification channel for drift and fairness alerts (see `.env.example`, `ALERT_WEBHOOK_URL`); potentially SSO/identity-provider integration for institutional login. |
 | **Security** | JWT session tokens (real, `jsonwebtoken` crate) + Argon2 password hashing (real, `argon2` crate) + role-gated, organisation-scoped endpoints (`staff` / `department_reviewer` / `compliance_admin` — see [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md)). Real tenant isolation: every query filters by the caller's `organisation_id`, verified by dedicated cross-tenant isolation tests (`backend/tests/multi_tenant_isolation.rs`), not just a schema column that happens to exist. A data-use consent gate blocks `/api/scan` for any user who hasn't accepted their organisation's current consent policy (`backend/src/routes/consent.rs`). **A global, per-IP rate limit now exists** ("response scanning + observability + hardening" task, Part 3): `tower_governor` (`backend/src/rate_limit.rs`), 10 requests/second sustained with a burst of 30, applied as the single outermost layer on the whole router — so it covers every route, including every one added by earlier tasks, by construction rather than per-route opt-in. Uses `SmartIpKeyExtractor` (reads `X-Forwarded-For`/`X-Real-IP`/`Forwarded`, correct only because this deployment sits behind Render's trusted reverse proxy — see [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md)). Real tests fire actual HTTP requests through a real `GovernorLayer`-wrapped router and assert both that ordinary traffic passes and that a burst trips a 429 (`cargo test --lib rate_limit`). A `cargo audit`/`npm audit` dependency pass was also run in Part 3: all 22 npm `high`-severity findings were fixed (all traced to the `vercel` CLI devDependency's own sub-dependencies, resolved via a version bump plus `package.json` `overrides`, verified with a real production build); of six `cargo audit` findings, one (`lopdf`, HIGH, pulled in transitively by `printpdf`) could not be safely fixed in this pass and is deferred with reasoning in [Questions.md](../Questions.md); the rest were confirmed either unreachable in the compiled binary or below the high/critical bar. No dedicated prompt-injection detector exists yet — the Drift & Security view's Security Events are seeded illustrative rows (`backend/src/bin/seed.rs`), not output from a live detector. | Same JWT/Argon2/tenant-isolation/rate-limit foundation, plus real prompt-injection detection and finer-grained (per-route, per-organisation) rate limiting and DoS mitigation at the gateway. |
 | **Monitoring** | Real PSI / KL-divergence math (`backend/src/detection/drift.rs`, with unit tests) computed once at seed time over synthetic weekly entity-count distributions — no scheduled batch job exists yet, so this doesn't run continuously against live traffic. Real Disparate Impact Ratio / Statistical Parity Difference (`backend/src/routes/fairness.rs`) computed live, on every request, from actual `audit_log` rows grouped by department and language. **Real observability now exists** ("response scanning + observability + hardening" task, Part 2): structured `tracing` logging with real fields across every significant application event (not just errors), `LOG_FORMAT=json` for machine-parseable output, an internal `backend_errors` table + "System Health" dashboard view populated by a single middleware layer (the documented fallback for a free-tier error-tracking service — see [Questions.md](../Questions.md) item 27 for why one wasn't wired in directly), and a GitHub Actions scheduled workflow (`.github/workflows/uptime-check.yml`) pinging `/health` every 30 minutes with GitHub's built-in failure-email notification. | Same PSI/KL and DIR/SPD math, run by a real scheduled job against live traffic instead of seed-time synthetic data; security event logging from a live detector instead of seeded examples; a dedicated uptime-monitoring service independent of GitHub repository activity; a real third-party error-tracking integration once an account/DSN can be provisioned. |
 | **Outputs** | A real, queryable `audit_log` table — one row per `/api/scan` call, with entities detected, risk score, decision, reason string, model used, response-scan result, and a hash (never raw text) of the original prompt. `GET /api/audit-log` serves it paginated and filterable to the dashboard. **A structured, date-ranged compliance export now exists**: `GET /api/compliance-export` (`compliance_admin` only) produces a CSV (complete dataset) or PDF (readable summary, capped at 500 most recent audit rows) covering the audit log, fairness metrics, and drift history together for a selected date range — see the Policy Builder / Compliance Export dashboard view and [Questions.md](../Questions.md) item 24. | Same audit log and export mechanism, at production scale/retention. |
@@ -138,15 +138,112 @@ authenticated session) — see `content/chatgpt-adapter.js` and
 [extension/README.md](../extension/README.md), for exactly what that does and
 doesn't mean.
 
+## Native chat (v0.1)
+
+**This is what makes the AI Gateway pipeline stage real, stated plainly, for the
+first time since it was described in this document.** Every other row above still
+describes `ai_model_used` as a literal "not connected" string for the extension's
+`/api/scan` path — that remains true and deliberate for that path. `POST /api/chat`
+is different: it is a real backend-to-OpenAI connection, not a documented no-op.
+
+**Architecture — reuses the existing pipeline, does not reimplement it.** `POST
+/api/chat` runs `scan_prompt_with_config` (the exact function `routes::scan` already
+uses) on the incoming message first. A `blocked_low_confidence` decision returns
+immediately, same `reason_string`/`user_message` shape as `/api/scan`, and OpenAI is
+never called — no exception. Any decision that forwards (`cleared_no_entities`,
+`redacted_and_forwarded`, or `redacted_low_confidence_review`) sends the *redacted*
+content to `OpenAiProvider` (`backend/src/providers/openai.rs`), which streams the
+reply back to the browser as it arrives (Server-Sent-Events parsing over a real
+`reqwest` HTTP call — the first outbound third-party HTTP client this backend has ever
+had). Once the stream ends, `scan_response` (the same function `routes::response_scan`
+uses for the extension) runs on the full assembled reply in a background task, and
+`audit_log`/`chat_messages` are updated with the result — deliberately AFTER the
+client's own HTTP stream has already closed, so response-scan latency never delays
+what the user perceives as "the reply finished."
+
+**Fails open on the response side, for the identical reason the extension's response
+scanner already does**: a response has already streamed to the browser by the time
+any scan could run — there is nothing left to block, and (per this project's
+standing design decision — see the Response scanning section above) a flagged
+response is never modified or hidden, only flagged. `chat_messages.response_flagged`
+and `audit_log.response_flagged` start `NULL` and are filled in once the background
+scan completes; the frontend picks this up by polling (this backend has no WebSocket
+infrastructure — the existing Command Center/Audit Log polling loop is the only
+precedent, and this follows it).
+
+**Chat history stores the redacted version of every message only, never the raw
+original** — the same zero-raw-prompt-storage principle `audit_log` already enforces.
+`chat_messages.redacted_content` for a `role='user'` row is `scan_prompt`'s
+`redacted_prompt`; a blocked prompt creates no `chat_messages` row at all (mirroring
+the extension's own "a block prevents sending, nothing else happens" behavior — no
+half-sent turn is ever recorded). The one place this differs from the extension: a
+`role='assistant'` row stores the reply verbatim. This is not an inconsistency — the
+extension never needs to persist a reply at all, since it's already rendered on the
+third-party site's own page; this native chat surface is the only place responsible
+for redisplaying that reply later, and `scan_response` was never designed to redact a
+response in the first place (see the Response scanning section's own reasoning on
+why silently altering already-shown content is a materially different, more
+concerning intervention than redacting an outgoing prompt before it sends).
+
+**One shared OpenAI key per organisation**, provisioned/rotated by a
+`compliance_admin` (`organization_api_keys`, encrypted at rest with AES-256-GCM —
+`backend/src/crypto.rs`, the first reversible-encryption pattern this codebase has
+needed; every prior secret-like value, e.g. passwords, uses one-way hashing instead).
+Never returned once saved. Basic usage visibility (a request count over a selectable
+window) is computed from this organisation's own `audit_log`, not OpenAI's billing
+API — that integration was judged not trivial and the simpler internal count was
+shipped instead, exactly as this feature's own task scope anticipated as the fallback.
+
+**Provider adapter, general but only one implementation**: `ChatProvider`
+(`backend/src/providers/mod.rs`) is a trait — a decrypted API key and redacted
+conversation history in, a stream of text deltas out — deliberately general enough
+for a second provider later, but only `OpenAiProvider` exists, and only it is tested.
+
+**Extension exclusion**: the browser extension's content scripts explicitly exclude
+this app's own deployed domain (`extension/manifest.json`'s `exclude_matches`,
+verified by a real automated test — see [Questions.md](../Questions.md) item 50) —
+the extension is for other AI chat sites; this app's own `/chat` page is this
+product's own surface, not something for the extension to also intercept.
+
+**Extension vs. web chat — both stay in the product, this is not a replacement.** The
+web app's `/chat` is the more complete, more robust path once an institution has
+actually rolled it out and provisioned an OpenAI key: every turn gets a durable audit
+trail entry the same way `/api/scan` already does, with no browser extension install
+required. The extension remains the right tool for any site the web app doesn't cover
+(chatgpt.com, claude.ai, etc. — the whole point of a client-side interceptor), or for
+any institution that hasn't rolled out `/chat` yet. Neither is described as
+deprecated or superseded anywhere in this document, deliberately.
+
+**Honest verification status**: no live OpenAI API key was available while building
+this. The provider adapter is tested against a mocked SSE response (unit tests,
+`providers/openai.rs`) and a real local mock HTTP server standing in for OpenAI
+(`backend/tests/chat.rs`, five full-pipeline integration tests using `wiremock`) —
+never the real API in the automated test suite. **One real network call did reach
+the real OpenAI API** during manual live-verification, using a deliberately fake key
+specifically to check error-handling on an auth failure — it received a genuine `401
+Unauthorized` and was handled correctly (a clean generic error to the client, the
+real reason logged server-side, the key never leaked in full), but this is explicitly
+not a verified successful completion. **The live OpenAI integration remains
+unverified against the real API.** The frontend (streaming render, role-gated
+landing, the retroactive flagged-response warning) was verified live end-to-end with
+a real Playwright browser session against a real running backend instance and the
+local mock provider — see [Questions.md](../Questions.md) items 47-49 for the full
+account, including a real race condition this caught and fixed (the client's
+post-stream refresh could beat the backend's own background insert of the assistant
+message row).
+
 ## API and Integration Checklist
 
 Answered honestly against the actual state of this repo. Where v0.1 falls short of
 the target, that gap is stated directly rather than glossed over.
 
-1. **API endpoints documented** — `backend/src/main.rs` wires up seven real,
-   real routes: `POST /api/auth/login`, `POST /api/scan`, `GET /api/audit-log`,
-   `GET /api/fairness`, `GET /api/drift`, `GET /api/security-events`,
-   `GET /api/command-center/summary`, plus `GET /health`. No OpenAPI/Swagger spec
+1. **API endpoints documented** — `backend/src/main.rs` wires up the full route
+   table, including (native chat feature) `POST /api/chat`, `GET
+   /api/chat/conversations`, `GET /api/chat/conversations/:id/messages`, `GET`/`PUT
+   /api/policy/openai-key`, and `GET /api/policy/openai-key/usage` alongside the
+   original `POST /api/auth/login`, `POST /api/scan`, `GET /api/audit-log`, `GET
+   /api/fairness`, `GET /api/drift`, `GET /api/security-events`, `GET
+   /api/command-center/summary`, and `GET /health`. No OpenAPI/Swagger spec
    exists yet — route signatures and response shapes are documented in
    `backend/src/models.rs` and this file's README setup section (with a working
    `curl` example) instead.

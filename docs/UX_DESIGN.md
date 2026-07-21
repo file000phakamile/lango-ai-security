@@ -87,6 +87,18 @@ client-side dashboard component):
    "Labelled Dataset (Active Learning)", exports every recorded confirm/overturn
    judgment from the Audit Log's row-expand as CSV or JSONL — see item 25.
 
+**A ninth screen, `/chat`, is a real route rather than a ninth sidebar-switched
+view** (native chat feature — see [Questions.md](../Questions.md) items 46-49): a
+message list, an input box, streaming response rendering, and a clear amber warning
+on any message whose response gets flagged after the fact (reusing the exact same
+amber/red/green grammar every other view already uses — a new visual language was
+deliberately not invented for this one feature). Reachable from the dashboard sidebar
+via a real link, visually set apart from the eight views above by a divider, since
+it's a distinct destination rather than another tab in the same switch. The Policy
+Builder view also gained a new section, "Chat: OpenAI API Key" — provision/rotate the
+organisation's shared key, see a masked confirmation once saved, and a basic usage
+count, styled identically to that view's two existing sections.
+
 ## Information architecture
 
 A fixed left sidebar (`LangoDashboard` component) lists all eight views with an icon
@@ -95,9 +107,18 @@ slightly different background. Below the nav, a static footer note reinforces th
 product's core promise ("No raw prompts stored"). The main content area has a header
 showing the active view's title, the current pilot institution/department context,
 and a live "system operational" status badge — so the institutional context is always
-visible regardless of which view is open. There is no routing between views (all
+visible regardless of which view is open. There is no routing between the eight dashboard views (all
 client-side state); this was a deliberate simplicity choice for a single-session demo,
-not a claim about how a multi-page production app would be structured.
+not a claim about how a multi-page production app would be structured. `/chat` is the
+one exception, and it's role-gated at the point of login rather than hidden behind a
+permission check on the page itself: a `staff` login (via the new `/login` page)
+lands directly on `/chat`, since `staff` has no dashboard access at all in the
+existing role model — this is genuinely their first and only real destination, not a
+paywall or an incomplete build. `compliance_admin`/`department_reviewer` land on the
+dashboard as before, with a "Chat" link now reachable from the sidebar. This only
+activates for a real login — the dashboard's existing zero-config demo/mock viewing
+experience (no login at all) is completely unaffected, since the demo account is
+always `compliance_admin`.
 
 ## Data visualisation logic
 

@@ -66,10 +66,14 @@ implemented behaviour today, not just a target-production principle:
 `backend/src/detection/scan.rs` strips matched entities from the prompt before
 anything is logged, and `audit_log.original_prompt_hash` stores a SHA-256 hash of the
 original prompt — never the raw text — with `redacted_prompt` storing only the
-sanitised version. The target production system carries the same principle forward
-unchanged; what's still aspirational there is the AI Gateway actually forwarding the
-sanitised prompt to a live provider, not the redaction-before-logging behaviour
-itself.
+sanitised version. **The native chat feature's `chat_messages` table follows the
+identical principle** — a user's message is stored only as its redacted form, never
+the raw text they typed; a blocked message is never stored at all. The target
+production system carries the same principle forward unchanged; what used to be
+aspirational there — the AI Gateway actually forwarding the sanitised prompt to a
+live provider — is now real for this one path (native chat, OpenAI only; see
+[ARCHITECTURE.md](ARCHITECTURE.md)'s Native chat section), though still not for the
+extension's own `/api/scan` path, by design.
 
 ## Health module — new entity types, and a new sensitivity-class axis
 
@@ -133,6 +137,16 @@ not generative AI.** This is a deliberate design choice, not a limitation:
   generative AI tool — it sits in front of it. The *sanitised* prompt is still
   forwarded to whichever generative AI provider the institution already uses; Lango's
   own detection layer is intentionally not generative.
+- **This is no longer purely hypothetical, for one specific path.** The native chat
+  feature's `POST /api/chat` is a real, live example of exactly this pattern: the
+  *redacted* prompt (never the raw original) is forwarded to OpenAI, and the reply
+  streams back through this product. This does not change anything about the
+  detection layer above — `scan_prompt`/`scan_response` are still the same
+  deterministic, rule-based, non-generative detectors described in this document,
+  run before and after the generative call respectively. See
+  [ARCHITECTURE.md](ARCHITECTURE.md)'s Native chat section for the full design, and
+  the Known limitations section below for this path's honest verification status
+  (no live OpenAI key was available while building it).
 
 ## What does a correct output look like?
 
@@ -221,6 +235,15 @@ not yet running against real institutional volume.
   illustrate that the system reports failures rather than hiding them.
 - **Language/dialect coverage is limited** to the three languages shown in the demo
   (English, Ndebele, Shona) as a starting scope, not a claim of broader coverage.
+- **The native chat feature's live OpenAI connection is unverified against the real
+  API.** No live OpenAI key was available while building it. The provider adapter is
+  tested against a mocked SSE response and a real local mock HTTP server standing in
+  for OpenAI — never the real API in the automated test suite. One real network call
+  did reach the real OpenAI API during manual verification, using a deliberately fake
+  key to check error handling (a genuine `401` came back and was handled correctly),
+  which is not the same claim as a verified successful completion. See
+  [ARCHITECTURE.md](ARCHITECTURE.md)'s Native chat section and
+  [Questions.md](../Questions.md) items 47-49.
 
 ## Human oversight for high-risk decisions
 
