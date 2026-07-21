@@ -3511,3 +3511,66 @@ including the real usage count from item 48's earlier live testing.
 (`isLiveBackendConfigured()`), rather than attempting and failing against a
 backend that was never there — consistent with this codebase's existing
 policy-builder/compliance-export/system-health precedent.
+
+## 50. Native chat feature, Phase 5 (extension manifest exclusion) — a real
+test, deliberately proven load-bearing, not just written
+
+**`exclude_matches` on every `content_scripts` entry, not a coincidence of
+today's site list.** None of the five existing site patterns
+(`chatgpt.com`, `claude.ai`, `gemini.google.com`, `chat.deepseek.com`,
+`copilot.microsoft.com`) would ever have matched this app's own domain
+(`lango-app-dusky.vercel.app`) in the first place — so the real risk this
+task asked to guard against isn't "does it match today" but "will a future
+6th site-adapter entry accidentally include it." Every entry in
+`manifest.json`'s `content_scripts` now carries an explicit
+`"exclude_matches": ["https://lango-app-dusky.vercel.app/*"]`, and the new
+test (below) specifically asserts each entry lists it explicitly — not
+merely that none currently match — so a future entry that forgets this is
+caught immediately rather than silently shipping. `host_permissions` needed
+no change: the web app's own domain was never in it (only the backend API
+host, `lango-backend-qwkx.onrender.com`, which the extension's background
+script legitimately fetches — an API host is not a page to inject a
+content script into, a distinction worth stating rather than conflating).
+
+**A real, dependency-free automated test, not a manual-verification
+writeup — chosen because manual would have been the lower-effort option
+and I judged the automated one genuinely achievable instead.** No test
+framework (jest/vitest/playwright config, or even a `test` script) existed
+anywhere in this repo before this — confirmed by checking package.json and
+searching for `*.test.js`/config files, not assumed. Rather than default to
+"no infrastructure exists, so document a manual check," I wrote
+`extension/test/manifest-domain-exclusion.test.js`: a small, standalone
+Node script using only the built-in `assert` module, implementing Chrome's
+actual match-pattern algorithm (scheme/host/path with `*` wildcards) rather
+than a superficial string-contains check that could pass while the real
+Chrome-side matching behavior was still wrong. Wired to `npm run
+test:extension` in the root `package.json` (a new script entry — the first
+`test*` script this repo has ever had).
+
+**Verified the test is genuinely load-bearing, not just passing by
+construction** — the task's own instruction to write "a real test," taken
+seriously: deliberately removed one entry's `exclude_matches` (the
+chatgpt.com entry), re-ran the test, confirmed it failed with exactly the
+expected assertion message (`FAIL (1 assertion(s) failed)`, exit code 1),
+then restored the manifest via `git checkout -- extension/manifest.json`
+(the file was already tracked and unmodified at that commit, so this was a
+safe, exact restore) and re-applied the real edit cleanly. The test suite
+itself also includes a standing self-check (a hypothetical, deliberately
+unexcluded `matches` entry) that would fail if the matcher logic itself
+were ever broken to always report "no match" — guarding against the test
+passing vacuously, not just against a missing `exclude_matches`.
+
+**One real gotcha hit and fixed while doing the deliberate-break
+verification**: the first restore attempt used a Python `json.load`/
+`json.dump` round-trip to strip one field, which re-serialized the ENTIRE
+file — re-indenting every array onto multiple lines and, more seriously,
+`\u`-escaping the file's own em dash (`—`) in `"name"` instead of leaving
+it as a literal UTF-8 character, and a `cp` backup command had silently
+failed (wrong path) so there was nothing to restore from. Caught immediately
+by `git diff` showing far more churn than the one field removed, not
+assumed clean. Recovered correctly via `git checkout --
+extension/manifest.json` (the pre-Phase-5 committed version) followed by a
+clean re-application of the real `exclude_matches` edit via the same
+targeted string replacement used the first time — the final diff against
+the last commit is exactly the five intended `exclude_matches` lines added,
+nothing else.

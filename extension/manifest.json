@@ -33,6 +33,7 @@
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*"],
+      "exclude_matches": ["https://lango-app-dusky.vercel.app/*"],
       "js": [
         "content/ui-banner.js",
         "content/site-adapter.js",
@@ -43,6 +44,7 @@
     },
     {
       "matches": ["https://claude.ai/*"],
+      "exclude_matches": ["https://lango-app-dusky.vercel.app/*"],
       "js": [
         "content/ui-banner.js",
         "content/site-adapter.js",
@@ -53,6 +55,7 @@
     },
     {
       "matches": ["https://gemini.google.com/*"],
+      "exclude_matches": ["https://lango-app-dusky.vercel.app/*"],
       "js": [
         "content/ui-banner.js",
         "content/site-adapter.js",
@@ -63,6 +66,7 @@
     },
     {
       "matches": ["https://chat.deepseek.com/*"],
+      "exclude_matches": ["https://lango-app-dusky.vercel.app/*"],
       "js": [
         "content/ui-banner.js",
         "content/site-adapter.js",
@@ -72,6 +76,7 @@
     },
     {
       "matches": ["https://copilot.microsoft.com/*"],
+      "exclude_matches": ["https://lango-app-dusky.vercel.app/*"],
       "js": [
         "content/ui-banner.js",
         "content/site-adapter.js",

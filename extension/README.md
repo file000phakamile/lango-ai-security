@@ -395,6 +395,40 @@ be fixed later:
   the full design reasoning and everything this specific verification pass did and
   did not confirm.
 
+## Excluded, deliberately: this product's own web app
+
+Lango now also ships a native in-app chat (`/chat` in the web dashboard — see the main
+repo README and `docs/ARCHITECTURE.md`) that reuses this same detection pipeline
+server-side, without needing a browser extension at all. The extension and the web
+app's chat are two separate products living in the same repo, not a replacement of one
+by the other (see `docs/UX_DESIGN.md` for when to use which) — but the extension's
+content scripts must never activate on the web app's own domain
+(`lango-app-dusky.vercel.app`), since that page is not a third-party AI chat site for
+this extension to intercept.
+
+Every entry in `manifest.json`'s `content_scripts` carries an explicit
+`"exclude_matches": ["https://lango-app-dusky.vercel.app/*"]`. None of today's five
+site patterns (`chatgpt.com`, `claude.ai`, `gemini.google.com`, `chat.deepseek.com`,
+`copilot.microsoft.com`) would ever match that domain anyway — so this is a deliberate,
+standing guarantee, not merely today's coincidence. It also means a future 6th
+adapter/site entry that forgot this exclusion would be caught immediately (see the
+test below), rather than silently shipping. `host_permissions` was checked the same
+way and never included the web app's domain either — only the backend API host
+(`lango-backend-qwkx.onrender.com`), which the extension's background script
+legitimately needs to `fetch()`, is present there.
+
+A real, automated test covers this: `extension/test/manifest-domain-exclusion.test.js`
+(run via `npm run test:extension`). No test framework (jest/vitest/playwright) existed
+anywhere in this repo before this — this is a small, dependency-free Node script using
+only the built-in `assert` module, implementing Chrome's actual match-pattern
+semantics rather than a superficial string check. It asserts, for the web app's real
+domain: `host_permissions` never matches it; every `content_scripts` entry explicitly
+excludes it (not just "doesn't currently match" — an explicit `exclude_matches` entry
+is required); and includes a self-check proving the test itself isn't vacuously
+passing (a hypothetical unexcluded entry is correctly flagged as a failure). Verified
+by deliberately removing one entry's `exclude_matches` and confirming the test fails,
+then restoring it — see Questions.md for that verification run.
+
 ## Local development
 
 To test against a locally-run backend instead of the live Render one: run the backend
